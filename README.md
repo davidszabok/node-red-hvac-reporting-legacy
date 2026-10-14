@@ -15,11 +15,18 @@ flows/
   datacollecting-summarymailer.public.json
 docs/
   ARCHITECTURE_HU.md
+  HARDWARE_HU.md
   INSTALLATION_HU.md
   PRIVACY_AND_SECURITY_HU.md
 sql/
   schema.sql
 ```
+
+## Hardverkörnyezet
+
+Az archivált rendszer központja egy **Sonoff iHost**. A fűtést két **Sonoff 4CH PRO R3** vezérli: ezek kapcsolják az öt zónába csoportosított, összesen tíz padlófűtési kört működtető Danfoss aktuátorokat, továbbá a kazán- és szivattyúágat. A helyiségek hőmérséklet- és páratartalom-adatait Sonoff SNZB-02P és SNZB-02D szenzorok adják. A világítási ökoszisztémában Sonoff TX Ultimate kapcsolók, IKEA DIRIGERA hub, BILRESA és STYRBAR vezérlők, valamint TRÅDFRI izzók és LED-vezérlők működnek. A klíma egy gyári Wi-Fi modullal szerelt **Mitsubishi MSZ-AY35**, amelyet a flow MELCloudon keresztül ér el.
+
+A pontos darabszámok, szerepkörök és kapcsolatok: [HARDWARE_HU.md](docs/HARDWARE_HU.md).
 
 ## Függőségek
 

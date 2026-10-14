@@ -6,10 +6,10 @@
 
 | Forrás | Gyakoriság | Felhasznált adatok |
 |---|---:|---|
-| Sonoff iHost | 300 s, egyes dashboard-adatoknál 30 s | szobahőmérséklet, páratartalom, fűtési relék, redőnyök, kapcsolók |
+| Sonoff iHost | 300 s, egyes dashboard-adatoknál 30 s | SNZB-02P/SNZB-02D szobahőmérséklet és páratartalom, két 4CH PRO R3 fűtési relé, TX Ultimate kapcsolók és további eszközök |
 | Open-Meteo | 300 s / 600 s áganként | aktuális kültéri hőmérséklet, páratartalom, szél, előrejelzés, napkelte és napnyugta |
 | MELCloud | 600 s | klíma tápállapot, mód, szobahőmérséklet, célérték és kommunikációs állapot |
-| IKEA DIRIGERA | periodikus lekérdezés | lámpák, vezérlők, mozgásérzékelő és hubállapot |
+| IKEA DIRIGERA | periodikus lekérdezés | TRÅDFRI fények és LED-vezérlők, BILRESA/STYRBAR kapcsolók, mozgásérzékelő és hubállapot |
 | Node-RED idő | minden HVAC-ciklus | óra, dátum, hónap és szezonális engedélyezés |
 
 ### Döntési lánc
