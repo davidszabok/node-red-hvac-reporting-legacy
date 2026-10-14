@@ -1,0 +1,2759 @@
+[
+  {
+    "id": "901bdeda80413cd9",
+    "type": "tab",
+    "label": "HVAC Core V1.0",
+    "disabled": false,
+    "info": "",
+    "env": []
+  },
+  {
+    "id": "ef16aacc66fd0699",
+    "type": "inject",
+    "z": "901bdeda80413cd9",
+    "name": "Tick / Poll 300s",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "300",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "0",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 120,
+    "y": 40,
+    "wires": [
+      [
+        "589307fcb2150c08",
+        "0208d1172cd96824",
+        "7112fbe03d7092c7",
+        "75e2c2285b6dff95",
+        "06b4673c7c496000"
+      ]
+    ]
+  },
+  {
+    "id": "589307fcb2150c08",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "T&H Sensors",
+    "server": "516031aa10c84f99",
+    "category": "temperatureAndHumiditySensor",
+    "device": "all",
+    "x": 410,
+    "y": 40,
+    "wires": [
+      [
+        "ebe6238058838f46"
+      ]
+    ],
+    "inputLabels": [
+      "All Sensor Data"
+    ],
+    "outputLabels": [
+      "T&H/Room"
+    ],
+    "icon": "font-awesome/fa-thermometer-half"
+  },
+  {
+    "id": "0208d1172cd96824",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Get Device Relay (F)",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000001",
+    "x": 380,
+    "y": 100,
+    "wires": [
+      [
+        "2f2edc2dbf7591a7"
+      ]
+    ],
+    "icon": "font-awesome/fa-sort"
+  },
+  {
+    "id": "7112fbe03d7092c7",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Get Device Relay (L)",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000002",
+    "x": 380,
+    "y": 160,
+    "wires": [
+      [
+        "4b5763fd31eaa85b"
+      ]
+    ],
+    "icon": "font-awesome/fa-sort"
+  },
+  {
+    "id": "75e2c2285b6dff95",
+    "type": "http request",
+    "z": "901bdeda80413cd9",
+    "name": "Request Open-Meteo (sample location)",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude=47.4979&longitude=19.0402&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_gusts_10m&hourly=temperature_2m,precipitation_probability,weather_code,wind_speed_10m&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset&timezone=auto",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 340,
+    "y": 280,
+    "wires": [
+      [
+        "6aa86ad1550e69f4"
+      ]
+    ]
+  },
+  {
+    "id": "06b4673c7c496000",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Time context",
+    "func": "const TZ = \"Europe/Budapest\";\nconst now = new Date();\n\nfunction partsInTimeZone(date, timeZone) {\n    const fmt = new Intl.DateTimeFormat(\"en-GB\", {\n        timeZone,\n        year: \"numeric\",\n        month: \"2-digit\",\n        day: \"2-digit\",\n        hour: \"2-digit\",\n        minute: \"2-digit\",\n        second: \"2-digit\",\n        weekday: \"short\",\n        hourCycle: \"h23\"\n    });\n\n    const parts = fmt.formatToParts(date);\n    const out = {};\n    for (const p of parts) {\n        if (p.type !== \"literal\") out[p.type] = p.value;\n    }\n    return out;\n}\n\nconst p = partsInTimeZone(now, TZ);\n\nconst year = Number(p.year);\nconst month = Number(p.month);\nconst day = Number(p.day);\nconst hour = Number(p.hour);\nconst minute = Number(p.minute);\nconst second = Number(p.second);\n\n// en-GB weekday -> Node-RED stílusú 0=vasárnap\nconst dowMap = {\n    Sun: 0,\n    Mon: 1,\n    Tue: 2,\n    Wed: 3,\n    Thu: 4,\n    Fri: 5,\n    Sat: 6\n};\nconst dow = dowMap[p.weekday] ?? null;\n\nlet partOfDay = \"day\";\nif (hour >= 22 || hour < 5) partOfDay = \"night\";\nelse if (hour >= 5 && hour < 8) partOfDay = \"morning\";\nelse if (hour >= 18 && hour < 22) partOfDay = \"evening\";\n\nlet seasonHint = \"transition\";\nif ([12, 1, 2].includes(month)) seasonHint = \"winter\";\nelse if ([6, 7, 8].includes(month)) seasonHint = \"summer\";\n\nmsg.topic = \"time\";\nmsg.payload = {\n    ts: now.toISOString(), // technikai UTC timestamp\n    timezone: TZ,\n    local: `${year}-${String(month).padStart(2, \"0\")}-${String(day).padStart(2, \"0\")} ${String(hour).padStart(2, \"0\")}:${String(minute).padStart(2, \"0\")}:${String(second).padStart(2, \"0\")}`,\n    hour,\n    minute,\n    second,\n    dow,\n    month,\n    day,\n    year,\n    partOfDay,\n    seasonHint\n};\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 610,
+    "y": 340,
+    "wires": [
+      [
+        "3fcd9d6449a2f026"
+      ]
+    ]
+  },
+  {
+    "id": "ebe6238058838f46",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "topic = sensors",
+    "func": "msg.topic = \"sensors\";\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 620,
+    "y": 40,
+    "wires": [
+      [
+        "3fcd9d6449a2f026"
+      ]
+    ]
+  },
+  {
+    "id": "2f2edc2dbf7591a7",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "topic = relayF",
+    "func": "msg.topic = \"relayF\";\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 620,
+    "y": 100,
+    "wires": [
+      [
+        "3fcd9d6449a2f026"
+      ]
+    ]
+  },
+  {
+    "id": "4b5763fd31eaa85b",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "topic = relayL",
+    "func": "msg.topic = \"relayL\";\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 620,
+    "y": 160,
+    "wires": [
+      [
+        "3fcd9d6449a2f026"
+      ]
+    ]
+  },
+  {
+    "id": "6aa86ad1550e69f4",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Outdoor Temp v3.0",
+    "func": "// Outdoor Temp (Open-Meteo) normalize v3\n// Output topic: \"weather\"\n// Output payload:\n// {\n//   ts,\n//   outdoor, forecastTemp, humidity, wx, wind, gust,\n//   forecast: { horizonHours, nextHourTemp, nextHourTs, minNextHours, maxNextHours },\n//   forecastHours: [ {ts,tempC,wx,windKph,pop}, ... ],\n//   source:{ utc_offset_seconds, timezone }\n// }\n\nfunction num(v) {\n  if (v == null) return null;\n  const n = typeof v === \"string\" ? Number(v.replace(\",\", \".\")) : Number(v);\n  return Number.isFinite(n) ? n : null;\n}\nfunction okTemp(v) {\n  return Number.isFinite(v) && v > -50 && v < 60;\n}\nfunction parseTimeWithOffset(tStr, offsetSec) {\n  // Open-Meteo timezone=auto -> gyakran \"YYYY-MM-DDTHH:mm\" offset nélkül.\n  // utc_offset_seconds alapján korrigáljuk.\n  if (typeof tStr !== \"string\") return NaN;\n\n  const hasZone =\n    tStr.endsWith(\"Z\") ||\n    /[+\\-]\\d\\d:\\d\\d$/.test(tStr) ||\n    /[+\\-]\\d\\d\\d\\d$/.test(tStr);\n\n  const base = Date.parse(hasZone ? tStr : (tStr + \"Z\"));\n  if (!Number.isFinite(base)) return NaN;\n\n  if (hasZone) return base;\n  if (Number.isFinite(offsetSec)) return base - offsetSec * 1000; // local -> UTC\n  return base;\n}\n\nfunction hourlyStats(p, hoursAhead = 6) {\n  const times = p?.hourly?.time;\n  const temps = p?.hourly?.temperature_2m;\n  if (!Array.isArray(times) || !Array.isArray(temps) || times.length !== temps.length) return null;\n\n  const offsetSec = num(p?.utc_offset_seconds);\n  const now = Date.now();\n  const end = now + hoursAhead * 3600 * 1000;\n\n  let nextTemp = null;\n  let nextTs = null;\n  let min = null;\n  let max = null;\n\n  for (let i = 0; i < times.length; i++) {\n    const ts = parseTimeWithOffset(times[i], offsetSec);\n    const t = num(temps[i]);\n    if (!Number.isFinite(ts) || !okTemp(t)) continue;\n\n    if (ts >= now && ts <= end) {\n      if (min === null || t < min) min = t;\n      if (max === null || t > max) max = t;\n\n      if (nextTs === null || ts < nextTs) {\n        nextTs = ts;\n        nextTemp = t;\n      }\n    }\n  }\n\n  // fallback: ha nincs jövőablak, keressünk legközelebbit (abs diff)\n  if (nextTemp === null) {\n    let best = null, bestDiff = Infinity, bestTs = null;\n    for (let i = 0; i < times.length; i++) {\n      const ts = parseTimeWithOffset(times[i], offsetSec);\n      const t = num(temps[i]);\n      if (!Number.isFinite(ts) || !okTemp(t)) continue;\n      const diff = Math.abs(now - ts);\n      if (diff < bestDiff) {\n        bestDiff = diff;\n        best = t;\n        bestTs = ts;\n      }\n    }\n    nextTemp = best;\n    nextTs = bestTs;\n    if (min === null) min = best;\n    if (max === null) max = best;\n  }\n\n  return {\n    horizonHours: hoursAhead,\n    nextHourTemp: nextTemp,\n    nextHourTs: Number.isFinite(nextTs) ? new Date(nextTs).toISOString() : null,\n    minNextHours: min,\n    maxNextHours: max,\n  };\n}\n\nfunction hourlyForecastList(p, hoursAhead = 6) {\n  const times = p?.hourly?.time;\n  const temps = p?.hourly?.temperature_2m;\n\n  // opcionális: csak akkor lesz kitöltve, ha ezek a mezők le vannak kérve Open-Meteo-tól\n  const wxc = p?.hourly?.weather_code;\n  const wind = p?.hourly?.wind_speed_10m;\n  const pop = p?.hourly?.precipitation_probability;\n\n  if (!Array.isArray(times) || !Array.isArray(temps) || times.length !== temps.length) return [];\n\n  const offsetSec = num(p?.utc_offset_seconds);\n  const now = Date.now();\n  const end = now + hoursAhead * 3600 * 1000;\n\n  const out = [];\n  for (let i = 0; i < times.length; i++) {\n    const ts = parseTimeWithOffset(times[i], offsetSec);\n    const t = num(temps[i]);\n    if (!Number.isFinite(ts) || !okTemp(t)) continue;\n    if (ts < now || ts > end) continue;\n\n    out.push({\n      ts: new Date(ts).toISOString(),\n      tempC: t,\n      wx: Array.isArray(wxc) ? num(wxc[i]) : null,\n      windKph: Array.isArray(wind) ? num(wind[i]) : null,\n      pop: Array.isArray(pop) ? num(pop[i]) : null,\n    });\n  }\n\n  out.sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));\n  return out;\n}\n\nconst p = msg.payload || {};\nconst nowIso = new Date().toISOString();\n\nconst tCur =\n  num(p?.current?.temperature_2m) ??\n  num(p?.current_weather?.temperature) ??\n  null;\n\nconst rh =\n  num(p?.current?.relative_humidity_2m) ??\n  num(p?.current?.relativehumidity_2m) ??\n  null;\n\nconst wx =\n  num(p?.current?.weather_code) ??\n  num(p?.current_weather?.weathercode) ??\n  null;\n\nconst wind = num(p?.current?.wind_speed_10m) ?? null;\nconst gust = num(p?.current?.wind_gusts_10m) ?? null;\n\nconst f = hourlyStats(p, 6);\nconst forecastTemp = okTemp(num(f?.minNextHours)) ? num(f.minNextHours) : (okTemp(tCur) ? tCur : null);\n\nconst forecastHours = hourlyForecastList(p, 6);\n\nif (!okTemp(tCur) && !okTemp(forecastTemp)) {\n  node.status({ fill: \"red\", shape: \"ring\", text: \"weather: N/A\" });\n  node.error(\"Open-Meteo: nem található kinti hőmérséklet (current/hourly).\", msg);\n  return null;\n}\n\nnode.status({\n  fill: \"green\",\n  shape: \"dot\",\n  text: `out:${okTemp(tCur) ? tCur.toFixed(1) : \"?\"}°C | fc(min6h):${okTemp(forecastTemp) ? forecastTemp.toFixed(1) : \"?\"}°C`,\n});\n\nmsg.topic = \"weather\";\nmsg.payload = {\n  ts: nowIso,\n  outdoor: okTemp(tCur) ? tCur : null,\n  forecastTemp: okTemp(forecastTemp) ? forecastTemp : null,\n  humidity: (rh != null ? rh : null),\n  wx: (wx != null ? wx : null),\n  wind,\n  gust,\n  forecast: f,\n  forecastHours,\n  source: {\n    utc_offset_seconds: num(p?.utc_offset_seconds) ?? null,\n    timezone: p?.timezone ?? null,\n  },\n};\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 630,
+    "y": 280,
+    "wires": [
+      [
+        "3fcd9d6449a2f026"
+      ]
+    ]
+  },
+  {
+    "id": "3fcd9d6449a2f026",
+    "type": "join",
+    "z": "901bdeda80413cd9",
+    "name": "Join snapshot",
+    "mode": "custom",
+    "build": "object",
+    "property": "payload",
+    "propertyType": "msg",
+    "key": "topic",
+    "joiner": "\\n",
+    "joinerType": "str",
+    "useparts": false,
+    "accumulate": false,
+    "timeout": "15",
+    "count": "6",
+    "reduceRight": false,
+    "reduceExp": "",
+    "reduceInit": "",
+    "reduceInitType": "num",
+    "reduceFixup": "",
+    "x": 940,
+    "y": 40,
+    "wires": [
+      [
+        "cd0a65b35452a8b3"
+      ]
+    ]
+  },
+  {
+    "id": "93c78ca568d3cd8c",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "Floor executor (dry run) debug",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1230,
+    "y": 300,
+    "wires": []
+  },
+  {
+    "id": "cd0a65b35452a8b3",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize snapshot v2.1",
+    "func": "// Normalize snapshot v2.1 (HVAC core state)\n// Input: join snapshot { sensors, relayF, relayL, ac, weather, time }\n// Output topic: hvac/state\n\nconst p = msg.payload || {};\n\n// ── Hiányos snapshot detektálás ─────────────────────────────\n// ✅ JAVÍTÁS: ha valamelyik forrás timeout miatt hiányzott, node.warn() jelzi\nconst EXPECTED_KEYS = [\"sensors\", \"relayF\", \"relayL\", \"ac\", \"weather\", \"time\"];\nconst missingKeys = EXPECTED_KEYS.filter(k => p[k] === undefined || p[k] === null);\nif (missingKeys.length > 0) {\n  node.warn(`Normalize snapshot: hiányzó forrás(ok): ${missingKeys.join(\", \")}`);\n}\n\nconst num = v => {\n  const n = Number(v);\n  return Number.isFinite(n) ? n : null;\n};\n\nfunction strip(s) {\n  return String(s || \"\")\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\")\n    .toLowerCase()\n    .trim();\n}\n\nfunction roomKey(name) {\n  const n = strip(name);\n  if (n.includes(\"nappali\")) return \"nappali\";\n  if (n.includes(\"haloszoba\") || n.includes(\"halo\")) return \"halo\";\n  if (n.includes(\"gyerek\") || n.includes(\"Gyerekszoba\")) return \"gyerek\";\n  if (n.includes(\"furdo\")) return \"furdo\";\n  if (n === \"wc\" || n.includes(\" wc\")) return \"wc\";\n  return n || \"unknown\";\n}\n\nfunction normalizeSensors(list) {\n  const arr = Array.isArray(list) ? list : [];\n  return arr\n    .map(s => {\n      if (\"temperature\" in (s || {}) || \"humidity\" in (s || {})) {\n        return { key: roomKey(s.name), name: s.name || null, temp: num(s.temperature), rh: num(s.humidity) };\n      }\n      if (s && s.display_category === \"temperatureAndHumiditySensor\") {\n        return {\n          key: roomKey(s.name),\n          name: s.name || null,\n          temp: num(s.state?.temperature?.temperature),\n          rh: num(s.state?.humidity?.humidity),\n        };\n      }\n      return null;\n    })\n    .filter(Boolean)\n    .filter(s => s.temp !== null || s.rh !== null);\n}\n\nfunction normalizeRelays(list) {\n  const arr = Array.isArray(list) ? list : (list && typeof list === \"object\" ? [list] : []);\n  const out = [];\n\n  for (const dev of arr) {\n    if (dev && (\"channel\" in dev || \"device\" in dev) && (\"state\" in dev)) {\n      const st = String(dev.state || \"unknown\").toLowerCase();\n      out.push({\n        device: dev.device || null,\n        channel: dev.channel || null,\n        name: dev.name || null,\n        state: st,\n        on: [\"on\",\"true\",\"1\",\"bekapcsolva\",\"active\",\"closed\"].includes(st)\n      });\n      continue;\n    }\n\n    const toggle = dev?.state?.toggle;\n    const labelMap = dev?.tags?.toggle || {};\n    const devName = dev?.name || \"Device\";\n\n    if (toggle && typeof toggle === \"object\") {\n      for (const [ch, obj] of Object.entries(toggle)) {\n        const st = String(obj?.toggleState || \"unknown\").toLowerCase();\n        out.push({\n          device: devName,\n          channel: ch,\n          name: labelMap?.[ch] || `${devName} #${ch}`,\n          state: st,\n          on: [\"on\",\"true\",\"1\",\"bekapcsolva\",\"active\",\"closed\"].includes(st)\n        });\n      }\n      continue;\n    }\n  }\n  return out;\n}\n\nconst rooms = normalizeSensors(p.sensors);\nconst floorRelays = normalizeRelays(p.relayF);\nconst lineRelays = normalizeRelays(p.relayL);\n\nconst roomTemps = rooms.map(r => r.temp).filter(v => v !== null);\nconst roomHums = rooms.map(r => r.rh).filter(v => v !== null);\n\nconst avgTemp = roomTemps.length ? Math.round((roomTemps.reduce((a,b)=>a+b,0)/roomTemps.length)*10)/10 : null;\nconst avgRh   = roomHums.length ? Math.round((roomHums.reduce((a,b)=>a+b,0)/roomHums.length)*10)/10 : null;\n\nmsg.topic = \"hvac/state\";\nmsg.payload = {\n  meta: { version: 2, updatedAt: new Date().toISOString() },\n\n  time: p.time || null,\n\n  indoor: { rooms, avgTemp, avgRh },\n\n  outdoor: {\n    temp: num(p.weather?.outdoor),\n    forecastTemp: num(p.weather?.forecastTemp),\n    humidity: num(p.weather?.humidity),\n    wx: (p.weather?.wx ?? null),\n    wind: num(p.weather?.wind),\n    gust: num(p.weather?.gust),\n    forecast: p.weather?.forecast ?? null,\n    source: p.weather?.source ?? null\n  },\n\n  relays: { floor: floorRelays, line: lineRelays },\n\n  ac: p.ac || {\n    power: false, roomTemp: null, setTemp: null, modeCode: null, pending: false, offline: true\n  }\n};\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 970,
+    "y": 100,
+    "wires": [
+      [
+        "9112a4f6afd1c7ee",
+        "3a1458f9556680a5"
+      ]
+    ]
+  },
+  {
+    "id": "9112a4f6afd1c7ee",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Zone Context Builder v3.2",
+    "func": "// Zone Context Builder v3.2 — fresh sensor cache + true hysteresis\n// Input: msg.payload = hvac/state\n\nconst state = msg.payload || {};\nconst now = new Date();\nconst nowMs = now.getTime();\n\nfunction num(v) {\n  if (v === null || v === undefined || v === \"\") return null;\n  const n = Number(v);\n  return Number.isFinite(n) ? n : null;\n}\nfunction norm(s) {\n  return String(s || \"\")\n    .normalize(\"NFD\")\n    .replace(/[\\u0300-\\u036f]/g, \"\")\n    .toLowerCase()\n    .trim();\n}\nfunction okTemp(v) {\n  return Number.isFinite(v) && v > -50 && v < 60;\n}\nfunction isActiveUntil(iso) {\n  if (!iso) return false;\n  const ts = Date.parse(iso);\n  return Number.isFinite(ts) && ts > nowMs;\n}\nfunction isBetweenHour(hour, s, e) {\n  if (hour === null) return false;\n  return s < e ? (hour >= s && hour < e) : (hour >= s || hour < e);\n}\n\n// --- Heating rules konstansok (v0.4.1)\n// orig -> const BASE_SETPOINTS = { nappali: 25, halo: 25, gyerek: 25, furdo: 25, wc: 25 };\nconst BASE_SETPOINTS = { nappali: 24.2, halo: 23.0, gyerek: 23.5, furdo: 23.5, wc: 22.5 };\n\nconst HYST = 1.0;\nconst NIGHT_DELTA = 1.5;\nconst SENSOR_CACHE_MAX_AGE_MS = 15 * 60 * 1000;\nconst SCHEDULE = {\n  reggeli_melegites: { start: 5, end: 8 },\n  nappali: { start: 8, end: 22 },\n  ejszaka: { start: 22, end: 5 },\n  furdo_kivetel: { start: 17, end: 19 }\n};\n\n// --- WEATHER COMP görbe\nfunction weatherOffset(tOut) {\n  if (!okTemp(tOut)) return 0;\n  let off;\n  if (tOut <= -10) off = 0.8;\n  else if (tOut <= 0)   off = 0.8 - (0.8 - 0.4) * ((tOut - (-10)) / 10);\n  else if (tOut <= 10)  off = 0.4 - (0.4 - 0.1) * (tOut / 10);\n  else if (tOut <= 15)  off = 0.1 - (0.1 - 0.0) * ((tOut - 10) / 5);\n  else if (tOut <= 20)  off = 0.0 - (0.0 - (-0.3)) * ((tOut - 15) / 5);\n  else off = -0.3;\n  return Math.max(-0.8, Math.min(0.8, off));\n}\n\n// overrides (UI később)\nconst zoneOverrides = flow.get(\"hvac_zone_overrides\") || {};\n\n// idő / mód\nconst t = state.time || {};\nconst hour = (num(t.hour) !== null) ? num(t.hour) : now.getHours();\n\nlet mode = \"nappali\";\nif (isBetweenHour(hour, SCHEDULE.reggeli_melegites.start, SCHEDULE.reggeli_melegites.end)) mode = \"reggel\";\nelse if (isBetweenHour(hour, SCHEDULE.ejszaka.start, SCHEDULE.ejszaka.end)) mode = \"ejszaka\";\n\n// outdoor: forecastTemp prefer\nconst tOutNow = num(state.outdoor?.temp);\nconst tOutForecast = num(state.outdoor?.forecastTemp);\nconst tOutUsed = okTemp(tOutForecast) ? tOutForecast : (okTemp(tOutNow) ? tOutNow : null);\nconst tOutSource = okTemp(tOutForecast) ? \"forecastTemp\" : (okTemp(tOutNow) ? \"current\" : \"none\");\nconst wOff = weatherOffset(tOutUsed);\n\n// inputs\nconst rooms = Array.isArray(state.indoor?.rooms) ? state.indoor.rooms : [];\nconst floorRelays = Array.isArray(state.relays?.floor) ? state.relays.floor : [];\nconst lineRelays = Array.isArray(state.relays?.line) ? state.relays.line : [];\nconst allRelays = [...floorRelays, ...lineRelays];\n\nfunction findRoom(keys) {\n  const wanted = (Array.isArray(keys) ? keys : [keys]).map(norm);\n  return rooms.find(r => wanted.includes(norm(r.key)) || wanted.includes(norm(r.name))) || null;\n}\nfunction findZoneRelay(relayHints) {\n  const hints = (Array.isArray(relayHints) ? relayHints : [relayHints]).map(norm);\n  return allRelays.find(r => {\n    const name = norm(r.name);\n    return hints.some(h => name.includes(h)) && name.includes(\"futeskor\");\n  }) || null;\n}\nfunction findSystemRelay(hint) {\n  const h = norm(hint);\n  return allRelays.find(r => norm(r.name).includes(h)) || null;\n}\n\nconst zoneCfg = {\n  nappali: { label: \"Nappali\", roomKeys: [\"nappali\"], relayHints: [\"nappali\"], base: BASE_SETPOINTS.nappali },\n  halo:    { label: \"Hálószoba\", roomKeys: [\"halo\"], relayHints: [\"haloszoba\",\"halo\"], base: BASE_SETPOINTS.halo },\n  gyerek:  { label: \"Gyerekszoba\", roomKeys: [\"gyerek\",\"Gyerekszoba\"], relayHints: [\"Gyerekszoba\",\"gyerek\"], base: BASE_SETPOINTS.gyerek },\n  furdo:   { label: \"Fürdőszoba\", roomKeys: [\"furdo\"], relayHints: [\"furdo\",\"furdoszoba\"], base: BASE_SETPOINTS.furdo },\n  wc:      { label: \"WC\", roomKeys: [\"wc\",\"wc t&h\"], relayHints: [\"wc\"], base: BASE_SETPOINTS.wc }\n};\n\n// cache kulcsok (régi heating rules kompat)\nconst cacheKeys = { nappali:\"ho_nappali\", halo:\"ho_halo\", gyerek:\"ho_Gyerekszoba\", furdo:\"ho_furdo\", wc:\"ho_wc\" };\n\nfunction getTempWithCache(zoneKey, roomObj) {\n  const live = num(roomObj?.temp);\n  if (okTemp(live)) {\n    flow.set(cacheKeys[zoneKey], live);\n    flow.set(`${cacheKeys[zoneKey]}_at`, nowMs);\n    return { temp: live, source: \"live\", ageMs: 0 };\n  }\n  const cached = num(flow.get(cacheKeys[zoneKey]));\n  const cachedAt = num(flow.get(`${cacheKeys[zoneKey]}_at`));\n  const ageMs = cachedAt === null ? null : Math.max(0, nowMs - cachedAt);\n  if (okTemp(cached) && ageMs !== null && ageMs <= SENSOR_CACHE_MAX_AGE_MS) {\n    return { temp: cached, source: \"cached\", ageMs };\n  }\n  return { temp: null, source: null, ageMs };\n}\n\nfunction buildZone(zoneKey, cfg) {\n  const room = findRoom(cfg.roomKeys);\n  const relay = findZoneRelay(cfg.relayHints);\n  const ov = zoneOverrides[zoneKey] || {};\n\n  const manualTargetActive = isActiveUntil(ov.until);\n  const manualForceOnActive = isActiveUntil(ov.forceOnUntil);\n\n  const nightAdj = (mode === \"ejszaka\") ? -NIGHT_DELTA : 0;\n  const setpointRules = cfg.base + wOff + nightAdj;\n\n  let setpointEffective = setpointRules;\n  if (manualTargetActive && num(ov.target) !== null) setpointEffective = num(ov.target);\n\n  const { temp, source, ageMs } = getTempWithCache(zoneKey, room);\n  const rh = num(room?.rh);\n\n  const thresholdOn = (Number.isFinite(setpointEffective) ? (setpointEffective - HYST) : null);\n  const thresholdOff = Number.isFinite(setpointEffective) ? setpointEffective : null;\n  const relayOn = relay?.on === true;\n\n  // Valódi hiszterézis: kikapcsolt kör csak az alsó küszöb alatt indul,\n  // bekapcsolt kör a célértékig folytatja a fűtést.\n  const wantsHeatByTemp = okTemp(temp) && Number.isFinite(setpointEffective) && (\n    relayOn ? temp < thresholdOff : temp < thresholdOn\n  );\n  const wantsHeatRulesByTemp = okTemp(temp) && Number.isFinite(setpointRules) && (\n    relayOn ? temp < setpointRules : temp < (setpointRules - HYST)\n  );\n\n  // “rules” vs “effective”\n  const wantsHeatRules = wantsHeatRulesByTemp;\n\n  const wantsHeatEffective =\n    manualForceOnActive ||\n    wantsHeatByTemp;\n\n  const heatDeficit =\n    (okTemp(temp) && Number.isFinite(setpointEffective))\n      ? Math.max(0, (setpointEffective - temp))\n      : null;\n\n  const error =\n    (okTemp(temp) && Number.isFinite(setpointEffective))\n      ? +(setpointEffective - temp).toFixed(2)\n      : null;\n\n  const furdoExceptionWindowActive =\n    zoneKey === \"furdo\" && isBetweenHour(hour, SCHEDULE.furdo_kivetel.start, SCHEDULE.furdo_kivetel.end);\n\n  return {\n    key: zoneKey,\n    label: cfg.label,\n\n    sensor: {\n      ok: !!room || source === \"cached\",\n      name: room?.name || null,\n      temp,\n      tempSource: source,\n      tempAgeMs: ageMs,\n      fresh: source === \"live\" || (source === \"cached\" && ageMs <= SENSOR_CACHE_MAX_AGE_MS),\n      rh\n    },\n\n    relay: {\n      found: !!relay,\n      device: relay?.device || null,\n      channel: relay?.channel || null,\n      name: relay?.name || null,\n      state: relay?.state || \"unknown\",\n      on: !!relay?.on\n    },\n\n    // ---- DOWNSTREAM KOMPAT: Zone planner + UI Publisher ezeket várja\n    control: {\n      targetRules: setpointRules,\n      targetEffective: setpointEffective,\n      hysteresis: HYST,\n      thresholdOn,\n      thresholdOff,\n      error,\n      heatDeficit,\n      // “base” alatt itt az EFFECTIVE demandet adjuk, mert ez a tényleges vezérlés alapja.\n      wantsHeatBase: !!wantsHeatEffective,\n      wantsHeatRules: !!wantsHeatRules\n    },\n\n    rules: {\n      compat: \"heating_rules_v0.4.1\",\n      mode,\n      baseSetpoint: cfg.base,\n      nightDeltaApplied: nightAdj,\n      weather: { tOutUsed, tOutSource, offset: wOff },\n      setpointRules,\n      setpointEffective,\n      hysteresis: HYST,\n      thresholdOn,\n      thresholdOff,\n      furdoExceptionWindowActive,\n      wantsHeatRules,\n      wantsHeatEffective,\n      heatDeficit\n    },\n\n    override: {\n      manualTargetActive,\n      manualTargetUntil: ov.until || null,\n      manualTarget: manualTargetActive ? num(ov.target) : null,\n\n      manualForceOnActive,\n      manualForceOnUntil: ov.forceOnUntil || null\n    }\n  };\n}\n\n// build zones\nconst zones = {};\nfor (const [k, cfg] of Object.entries(zoneCfg)) zones[k] = buildZone(k, cfg);\n\n// system relays\nconst boilerRelay = findSystemRelay(\"kazan\");\nconst pumpRelay = findSystemRelay(\"szivattyu\");\n\n// AC availability (változatlan)\nconst lastCommunication = state.ac?.lastCommunication || null;\nconst lastTs = lastCommunication ? Date.parse(lastCommunication) : null;\nconst acAgeSec = Number.isFinite(lastTs) ? Math.round((nowMs - lastTs) / 1000) : null;\nconst acFresh = acAgeSec !== null && acAgeSec <= 15 * 60;\nconst acHasTelemetry =\n  num(state.ac?.roomTemp) !== null ||\n  num(state.ac?.setTemp) !== null ||\n  num(state.ac?.modeCode) !== null;\nconst acAvailable = !state.ac?.pending && (acFresh || acHasTelemetry);\n\n// demand summary\nconst demandZonesRules = Object.values(zones).filter(z => z.rules.wantsHeatRules).map(z => z.key);\nconst demandZonesEffective = Object.values(zones).filter(z => z.rules.wantsHeatEffective).map(z => z.key);\n\nmsg.topic = \"hvac/zone-context\";\nmsg.payload = {\n  meta: {\n    builtAt: new Date().toISOString(),\n    zoneContextVersion: 32,\n    compat: \"heating_rules_v0.4.1\"\n  },\n\n  source: state,\n\n  system: {\n    time: state.time || null,\n\n    outdoor: {\n      tempNow: tOutNow,\n      tempForecast: tOutForecast,\n      tempUsedForComp: tOutUsed,\n      tempSource: tOutSource,\n      wx: state.outdoor?.wx ?? null,\n      humidity: state.outdoor?.humidity ?? null,\n      weatherOffset: wOff,\n      forecast: state.outdoor?.forecast ?? null\n    },\n\n    heating: {\n      mode,\n      schedule: SCHEDULE,\n      hysteresis: HYST,\n      nightDelta: NIGHT_DELTA,\n      baseSetpoints: BASE_SETPOINTS,\n\n      demandZonesRules,\n      demandZonesEffective,\n\n      anyDemandRules: demandZonesRules.length > 0,\n      anyDemandEffective: demandZonesEffective.length > 0,\n\n      // ---- DOWNSTREAM KOMPAT: Climate planner/Zone planner régi neve\n      anyBaseDemand: (demandZonesEffective.length > 0),\n      demandZonesBase: demandZonesEffective\n    },\n\n    relays: {\n      boiler: { found: !!boilerRelay, name: boilerRelay?.name || null, on: !!boilerRelay?.on },\n      pump: { found: !!pumpRelay, name: pumpRelay?.name || null, on: !!pumpRelay?.on }\n    },\n\n    ac: {\n      available: acAvailable,\n      pending: !!state.ac?.pending,\n      offline: !!state.ac?.offline,\n      fresh: acFresh,\n      ageSec: acAgeSec,\n      roomTemp: num(state.ac?.roomTemp),\n      setTemp: num(state.ac?.setTemp),\n      modeCode: num(state.ac?.modeCode),\n      power: !!state.ac?.power\n    }\n  },\n\n  zones\n};\n\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 970,
+    "y": 160,
+    "wires": [
+      [
+        "f1eefcfbfba37bd0",
+        "8d729bbec285b931",
+        "74a78db21dbde469"
+      ]
+    ]
+  },
+  {
+    "id": "8d729bbec285b931",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Zone planner v3.0",
+    "func": "// Zone planner v3.0 — forecast strategy, AC priority and safe post-run\n// Input: hvac/zone-context (v3.1)\n// Output: hvac/zone-plan\n\nconst ctx = msg.payload || {};\nconst zonesIn = ctx.zones || {};\n\nfunction num(v) {\n  if (v === null || v === undefined || v === \"\") return null;\n  const n = Number(v);\n  return Number.isFinite(n) ? n : null;\n}\nfunction clone(obj) {\n  return JSON.parse(JSON.stringify(obj));\n}\n\nconst now = Date.now();\n\n// anti short-cycle (ms) — heating_rules_v0.4.1 port\nconst MIN_ON = { kazan:180000, szivattyu:90000, nappali:120000, halo:120000, gyerek:120000, furdo:120000, wc:120000 };\nconst MIN_OFF= { kazan:60000,  szivattyu:30000, nappali:30000,  halo:30000,  gyerek:30000,  furdo:30000,  wc:30000 };\n\nfunction applyAntiShortCycle(key, wantBool, currentOnBool) {\n  const want  = wantBool ? 1 : 0;\n  const curOn = currentOnBool ? 1 : 0;\n\n  const kState = `hvac_floor_${key}`;\n  const kAt    = `hvac_floor_${key}_at`;\n\n  let last = flow.get(kState);\n  let at   = flow.get(kAt);\n\n  if (typeof last !== \"number\") last = curOn;\n  if (typeof at   !== \"number\") at   = 0;\n\n  // resync ha manuálisan el lett kapcsolva valami\n  if ((last|0) !== (curOn|0)) {\n    last = curOn;\n    at   = now;\n    flow.set(kState, last|0);\n    flow.set(kAt,    at);\n  }\n\n  const elapsed = now - at;\n  let final = want;\n  let hold  = null;\n\n  if (want === 1 && last === 0 && elapsed < (MIN_OFF[key] || 0)) { final = last; hold = \"min_off_hold\"; }\n  if (want === 0 && last === 1 && elapsed < (MIN_ON[key]  || 0)) { final = last; hold = \"min_on_hold\";  }\n\n  if ((final|0) !== (last|0)) {\n    flow.set(kAt, now);\n  }\n  flow.set(kState, final|0);\n\n  return { final: !!final, hold, elapsedMs: elapsed };\n}\n\n// ---- stratégiai küszöbök\nconst cfg = {\n  heatingSeasonMax: 12,\n  coolingSeasonMin: 24,\n  transitionOutdoorMin: 5,\n  transitionDayMin: 12,\n  transitionDayMax: 24,\n  acHeatStartIndoor: 24.0,\n  acHeatStopIndoor: 25.0\n};\n\n// outdoor temp for strategy (prefer \"usedForComp\")\nconst outdoorTemp =\n  num(ctx.system?.outdoor?.tempUsedForComp) ??\n  num(ctx.system?.outdoor?.tempNow)         ??\n  num(ctx.system?.outdoor?.tempForecast)    ??\n  null;\nconst forecastHigh =\n  num(ctx.system?.outdoor?.forecast?.maxNextHours) ??\n  outdoorTemp;\nconst livingTemp = num(zonesIn.nappali?.sensor?.temp);\nconst acAvailable = ctx.system?.ac?.available === true && ctx.system?.ac?.pending !== true;\nconst acHeatOwned = flow.get(\"hvac_ac_automation_owned\") === true &&\n  flow.get(\"hvac_ac_auto_mode\") === \"heat\";\n\n// floor mode (Floor Arbitration állítja be)\nconst floorMode = ctx.system?.control?.floorMode || \"auto\"; // auto | off | manual\n\nlet strategyMode = \"transition\";\nif (forecastHigh !== null) {\n  if (forecastHigh < cfg.transitionDayMin) strategyMode = \"heating_season\";\n  else if (forecastHigh >= cfg.coolingSeasonMin) strategyMode = \"cooling_season\";\n} else if (ctx.system?.heating?.anyBaseDemand) {\n  strategyMode = \"heating_season\";\n}\n\n// Enyhe őszi/tavaszi napon a nappali klímája kap elsőbbséget. A prioritás\n// 24 °C alatt indul, majd az automatika által indított fűtés 25 °C-ig tart.\nconst mildDay =\n  forecastHigh !== null &&\n  forecastHigh >= cfg.transitionDayMin &&\n  forecastHigh < cfg.transitionDayMax &&\n  (outdoorTemp === null || outdoorTemp > cfg.transitionOutdoorMin);\nconst acHeatPriority =\n  floorMode === \"auto\" && acAvailable && mildDay && livingTemp !== null &&\n  (livingTemp < cfg.acHeatStartIndoor || (acHeatOwned && livingTemp < cfg.acHeatStopIndoor));\n\nconst floorHeatingAllowed =\n  floorMode !== \"off\" &&\n  strategyMode !== \"cooling_season\" &&\n  !acHeatPriority;\n\nconst zoneKeys = [\"nappali\", \"halo\", \"gyerek\", \"furdo\", \"wc\"];\nconst zonePlan = {};\n\nfor (const key of zoneKeys) {\n  const z       = clone(zonesIn[key] || {});\n  const reasons = [];\n\n  const baseDemand = !!(z.control?.wantsHeatBase ?? z.rules?.wantsHeatEffective ?? false);\n  const relayFound = z.relay?.found === true;\n  const sensorFresh = z.sensor?.fresh !== false && num(z.sensor?.temp) !== null;\n  const baseWant = baseDemand && relayFound && sensorFresh;\n\n  let want = floorHeatingAllowed && baseWant;\n  if (baseWant)                      reasons.push(\"base_demand\");\n  if (baseDemand && !relayFound)     reasons.push(\"relay_unknown\");\n  if (baseDemand && !sensorFresh)    reasons.push(\"sensor_stale\");\n  if (!floorHeatingAllowed && baseWant) reasons.push(\"strategy_block\");\n\n  const relayOn = !!z.relay?.on;\n\n  const asc = applyAntiShortCycle(key, want, relayOn);\n  if (asc.hold) reasons.push(asc.hold);\n  const wantFinal = asc.final;\n\n  const action =\n    wantFinal && !relayOn  ? \"turn_on\"  :\n    !wantFinal && relayOn  ? \"turn_off\" :\n    \"keep\";\n\n  zonePlan[key] = {\n    key:      z.key || key,\n    label:    z.label || key,\n    sensor:   z.sensor   || {},\n    relay:    z.relay    || {},\n    config:   z.config   || {},\n    control:  z.control  || {},\n    override: z.override || {},\n    rules:    z.rules    || {},\n\n    plan: {\n      wantRaw: baseWant,\n      want:    wantFinal,\n      relayOn,\n      action,\n      reasons,\n      antiShortCycle: { hold: asc.hold, elapsedMs: asc.elapsedMs }\n    }\n  };\n}\n\n// summary\nconst wantedZones      = Object.values(zonePlan).filter(z => z.plan.want).map(z => z.key);\nconst currentlyOnZones = Object.values(zonePlan).filter(z => z.plan.relayOn).map(z => z.key);\nconst anyZoneWant      = wantedZones.length > 0;\n\n// plant\nconst boilerFound = ctx.system?.relays?.boiler?.found === true;\nconst pumpFound   = ctx.system?.relays?.pump?.found === true;\nconst boilerOn = boilerFound && ctx.system.relays.boiler.on === true;\nconst pumpOn   = pumpFound && ctx.system.relays.pump.on === true;\n\n// Ismeretlen reléállapotból nem gyártunk parancsot. A minimumidők csak\n// igazolt visszajelzésből indulnak, nem a korábban tervezett állapotból.\nconst boilerASC = boilerFound\n  ? applyAntiShortCycle(\"kazan\", anyZoneWant && floorHeatingAllowed, boilerOn)\n  : { final: false, hold: \"relay_unknown\", elapsedMs: null };\nconst boilerWant = boilerASC.final;\n\nconst boilerAction = !boilerFound ? \"keep\" :\n  boilerWant && !boilerOn  ? \"turn_on\"  :\n  !boilerWant && boilerOn  ? \"turn_off\" :\n  \"keep\";\n\n// Az utókeringés már a kazán kikapcsolási parancsakor elindul. Az igazolt\n// BE -> KI átmenet csak akkor indít új időzítést, ha nem ez a flow kérte a\n// leállást. Így az 5 perces lekérdezés nem állítja le, majd indítja újra a pumpát.\nconst POST_RUN_MS = 3 * 60 * 1000;\nconst PREV_BOILER_KEY = \"hvac_boiler_confirmed_on\";\nconst POST_RUN_UNTIL_KEY = \"hvac_pump_postrun_until\";\nconst OFF_COMMAND_AT_KEY = \"hvac_boiler_off_command_at\";\nconst prevBoilerOn = flow.get(PREV_BOILER_KEY);\nlet postRunUntil = num(flow.get(POST_RUN_UNTIL_KEY)) ?? 0;\nlet offCommandAt = num(flow.get(OFF_COMMAND_AT_KEY));\n\nif (boilerAction === \"turn_off\") {\n  offCommandAt = now;\n  postRunUntil = now + POST_RUN_MS;\n  flow.set(OFF_COMMAND_AT_KEY, offCommandAt);\n}\n\nif (boilerFound) {\n  if (prevBoilerOn === true && boilerOn === false) {\n    const commandedRecently = offCommandAt !== null && (now - offCommandAt) < 15 * 60 * 1000;\n    postRunUntil = commandedRecently ? offCommandAt + POST_RUN_MS : now + POST_RUN_MS;\n    flow.set(OFF_COMMAND_AT_KEY, null);\n    offCommandAt = null;\n  }\n  if (boilerOn === true && boilerAction !== \"turn_off\") postRunUntil = 0;\n  flow.set(PREV_BOILER_KEY, boilerOn);\n}\nif (postRunUntil <= now) postRunUntil = 0;\nflow.set(POST_RUN_UNTIL_KEY, postRunUntil);\n\nconst boilerRecentlyOff = boilerFound && postRunUntil > now &&\n  (!boilerOn || boilerAction === \"turn_off\");\nconst pumpDemand = (anyZoneWant && floorHeatingAllowed) || boilerRecentlyOff;\nconst pumpASC = pumpFound\n  ? applyAntiShortCycle(\"szivattyu\", pumpDemand, pumpOn)\n  : { final: false, hold: \"relay_unknown\", elapsedMs: null };\nconst pumpWant = pumpASC.final;\n\nconst pumpAction = !pumpFound ? \"keep\" :\n  pumpWant && !pumpOn  ? \"turn_on\"  :\n  !pumpWant && pumpOn  ? \"turn_off\" :\n  \"keep\";\n\nmsg.topic   = \"hvac/zone-plan\";\nmsg.payload = {\n  meta: { plannedAt: new Date().toISOString(), zonePlannerVersion: 30 },\n\n  strategy: { mode: strategyMode, floorHeatingAllowed, floorMode, outdoorTemp, forecastHigh,\n              mildDay, acHeatPriority, livingTemp, thresholds: cfg },\n\n  summary: {\n    wantedZones,\n    wantedCount:      wantedZones.length,\n    currentlyOnZones,\n    currentlyOnCount: currentlyOnZones.length,\n    anyZoneWant\n  },\n\n  plant: {\n    boiler: { found: boilerFound, currentOn: boilerOn, want: boilerWant, action: boilerAction, antiShortCycle: boilerASC },\n    pump:   { found: pumpFound, currentOn: pumpOn, want: pumpWant, action: pumpAction, antiShortCycle: pumpASC,\n              postRunActive: boilerRecentlyOff, postRunUntil: postRunUntil ? new Date(postRunUntil).toISOString() : null }\n  },\n\n  zones: zonePlan\n};\n\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 950,
+    "y": 220,
+    "wires": [
+      [
+        "acc13b0600d63f62",
+        "fe42aa81a861dd78"
+      ]
+    ]
+  },
+  {
+    "id": "dae97c8cd8dc75c0",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Floor executor",
+    "func": "const plan = msg.payload || {};\nconst zones = plan.zones || {};\n\n// --- iHost device mapping (nálad fix)\nconst DEV = {\n  F: { name: \"Fűtés F\", deviceId: \"00000000-0000-4000-8000-000000000001\" },\n  L: { name: \"Fűtés L\", deviceId: \"00000000-0000-4000-8000-000000000002\" },\n};\n\n// --- csatornák száma a relé modulokon\nconst CHANNELS = [\"1\", \"2\", \"3\", \"4\"];\n\n// --- helper: üres multi map\nfunction blankMulti() {\n  const m = {};\n  for (const ch of CHANNELS) m[ch] = \"keep\";\n  return m;\n}\n\n// --- helper: \"turn_on\"/\"turn_off\"/\"keep\" -> \"on\"/\"off\"/\"keep\"\nfunction toMultiAction(action) {\n  if (action === \"turn_on\") return \"on\";\n  if (action === \"turn_off\") return \"off\";\n  return \"keep\";\n}\n\n// --- készítsünk két multi parancsot (F és L)\nconst multiF = blankMulti();\nconst multiL = blankMulti();\n\n// --- zónákból relé-parancsok\nconst perZone = {};\nlet changes = 0;\n\nfor (const [key, z] of Object.entries(zones)) {\n  const a = z?.plan?.action || \"keep\";\n  const want = !!z?.plan?.want;\n\n  perZone[key] = {\n    want,\n    relayOn: !!z?.plan?.relayOn,\n    action: a,\n    reasons: z?.plan?.reasons || [],\n    relay: z?.relay || {}\n  };\n\n  if (a === \"keep\") continue;\n\n  const devName = z?.relay?.device;\n  const ch = String(z?.relay?.channel || \"\");\n\n  if (!ch || !CHANNELS.includes(ch)) continue;\n\n  const mAct = toMultiAction(a);\n\n  if (devName === DEV.F.name) {\n    multiF[ch] = mAct;\n    changes++;\n  } else if (devName === DEV.L.name) {\n    multiL[ch] = mAct;\n    changes++;\n  }\n}\n\n// --- kazán/szivattyú (a te rendszeredben: F ch4 = Kazán, L ch4 = Szivattyú)\nif (plan?.plant?.boiler?.action && plan.plant.boiler.action !== \"keep\") {\n  multiF[\"4\"] = toMultiAction(plan.plant.boiler.action);\n  changes++;\n}\nif (plan?.plant?.pump?.action && plan.plant.pump.action !== \"keep\") {\n  multiL[\"4\"] = toMultiAction(plan.plant.pump.action);\n  changes++;\n}\n\n// --- építsük meg a “control-device list” JSON-t (amit a node-ok használnak)\nconst cmdF = {\n  type: \"multi\",\n  deviceId: DEV.F.deviceId,\n  multi: multiF\n};\nconst cmdL = {\n  type: \"multi\",\n  deviceId: DEV.L.deviceId,\n  multi: multiL\n};\n\n// --- emberi összegzés\nconst wantedZones = plan?.summary?.wantedZones || [];\nconst onZones = plan?.summary?.currentlyOnZones || [];\n\nnode.status({\n  fill: changes ? \"yellow\" : \"green\",\n  shape: changes ? \"dot\" : \"ring\",\n  text: `prod | want:${wantedZones.join(\",\") || \"-\"} | on:${onZones.join(\",\") || \"-\"} | changes:${changes}`\n});\n\nmsg.topic = \"hvac/floor-exec/dryrun\";\nmsg.payload = {\n  meta: {\n    builtAt: new Date().toISOString(),\n    executorVersion: 1,\n    changes\n  },\n  strategy: plan.strategy || {},\n  summary: plan.summary || {},\n  plant: plan.plant || {},\n  perZone,\n  ihost: {\n    F: { device: DEV.F, list: cmdF },\n    L: { device: DEV.L, list: cmdL }\n  }\n};\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 940,
+    "y": 340,
+    "wires": [
+      [
+        "93c78ca568d3cd8c",
+        "e2ef70a6a68bafc0",
+        "7b0f6e7a9e8c4f1a"
+      ]
+    ]
+  },
+  {
+    "id": "f1eefcfbfba37bd0",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Climate planner v3.0",
+    "func": "// Climate planner v3.0 — seasonal AC priority with hysteresis\n\nconst ctx = msg.payload || {};\nfunction num(v) {\n  if (v === null || v === undefined || v === \"\") return null;\n  const n = Number(v);\n  return Number.isFinite(n) ? n : null;\n}\n\nconst sys = ctx.system || {};\nconst zones = ctx.zones || {};\nconst hasExpectedShape = !!sys.time && !!sys.outdoor && typeof zones === \"object\";\nif (!hasExpectedShape) {\n  msg.topic = \"hvac/climate-plan\";\n  msg.payload = {\n    meta: { plannedAt: new Date().toISOString(), climatePlannerVersion: 30 },\n    mode: \"idle\", reason: \"invalid_context_input\", command: null, inputs: {}\n  };\n  return msg;\n}\n\nconst outdoorTemp =\n  num(sys.outdoor?.tempUsedForComp) ??\n  num(sys.outdoor?.tempNow) ??\n  num(sys.outdoor?.tempForecast) ??\n  null;\nconst forecastHigh = num(sys.outdoor?.forecast?.maxNextHours) ?? outdoorTemp;\nconst refTemp = num(zones.nappali?.sensor?.temp) ?? num(ctx.source?.indoor?.avgTemp);\n\nconst rhList = Object.values(zones).map(z => num(z?.sensor?.rh)).filter(v => v !== null);\nconst avgRh = rhList.length ? Math.round(rhList.reduce((a,b)=>a+b,0)/rhList.length) : null;\nconst maxRh = rhList.length ? Math.max(...rhList) : null;\n\nconst heatingDemand =\n  sys.heating?.anyDemandEffective === true ||\n  sys.heating?.anyBaseDemand === true ||\n  sys.heating?.anyDemandRules === true;\nconst acAvailable = sys.ac?.available === true;\nconst acPending = sys.ac?.pending === true;\nconst canUseAc = acAvailable && !acPending;\nconst automationOwned = flow.get(\"hvac_ac_automation_owned\") === true;\nconst autoMode = flow.get(\"hvac_ac_auto_mode\") || null;\nconst calendarSeason = sys.time?.seasonHint || \"transition\";\nconst isSummer = calendarSeason === \"summer\";\n\nconst cfg = {\n  transitionDayMin: 12,\n  transitionDayMax: 24,\n  transitionOutdoorMin: 5,\n  heatIndoorOn: 24.0,\n  heatIndoorOff: 25.0,\n  heatDeviceTarget: 27.0,\n  heatFanSpeed: 3,\n\n  coolingIndoorOn: 24.4,\n  coolingIndoorOff: 24.0,\n  coolingDayMin: 24.0,\n  coolingTarget: 24.0,\n  coolingFanSpeed: 3,\n\n  dryingRhOn: 65,\n  dryingRhOff: 60,\n  dryingOutdoorMin: 8,\n  dryingTempMax: 25.0,\n  dryingTarget: 23.0\n};\n\nconst mildDay =\n  forecastHigh !== null && forecastHigh >= cfg.transitionDayMin && forecastHigh < cfg.transitionDayMax &&\n  (outdoorTemp === null || outdoorTemp > cfg.transitionOutdoorMin);\nconst warmDay =\n  isSummer &&\n  forecastHigh !== null && forecastHigh >= cfg.coolingDayMin &&\n  outdoorTemp !== null && outdoorTemp >= cfg.coolingDayMin;\n\nconst heatOwned = automationOwned && autoMode === \"heat\";\nconst coolingOwned = automationOwned && autoMode === \"cooling\";\nconst dryingOwned = automationOwned && autoMode === \"dry\";\n\nconst transitionHeatWanted = canUseAc && mildDay && refTemp !== null &&\n  (refTemp < cfg.heatIndoorOn || (heatOwned && refTemp < cfg.heatIndoorOff));\nconst coolingWanted = canUseAc && warmDay && refTemp !== null &&\n  (refTemp >= cfg.coolingIndoorOn || (coolingOwned && refTemp > cfg.coolingIndoorOff));\nconst dryingWanted = canUseAc && maxRh !== null &&\n  (maxRh >= cfg.dryingRhOn || (dryingOwned && maxRh > cfg.dryingRhOff)) &&\n  (outdoorTemp === null || outdoorTemp >= cfg.dryingOutdoorMin) &&\n  (refTemp === null || refTemp <= cfg.dryingTempMax);\n\nlet mode = \"idle\";\nlet reason = \"none\";\nlet command = null;\n\n// Nyáron a nappali szenzor szerint 24 °C-ot tartunk.\nif (coolingWanted) {\n  mode = \"cooling\";\n  reason = coolingOwned ? \"summer_hold\" : \"summer_start\";\n  command = { power: \"on\", mode: \"cooling\", temperature: cfg.coolingTarget, fanspeed: cfg.coolingFanSpeed };\n}\n// Enyhe őszi/tavaszi napon a klíma megelőzi a padlófűtést.\nelse if (transitionHeatWanted) {\n  mode = \"air_temper\";\n  reason = heatOwned ? \"transition_hold_to_25\" : \"transition_start_below_24\";\n  command = { power: \"on\", mode: \"heat\", temperature: cfg.heatDeviceTarget, fanspeed: cfg.heatFanSpeed };\n}\n// Hideg időben és más zónák padlóigényénél a padlófűtés az elsődleges.\nelse if (heatingDemand) {\n  mode = \"idle\";\n  reason = \"floor_heating_active\";\n}\nelse if (dryingWanted) {\n  mode = \"drying\";\n  reason = dryingOwned ? \"humidity_hold\" : \"humidity_high\";\n  command = { power: \"on\", mode: \"dry\", temperature: cfg.dryingTarget, fanspeed: 2 };\n}\n\nmsg.topic = \"hvac/climate-plan\";\nmsg.payload = {\n  meta: { plannedAt: new Date().toISOString(), climatePlannerVersion: 30 },\n  mode, reason, command,\n  inputs: {\n    partOfDay: sys.time?.partOfDay || null,\n    outdoorTemp, forecastHigh, refTemp, avgRh, maxRh, heatingDemand,\n    calendarSeason, isSummer, mildDay, warmDay, transitionHeatWanted, coolingWanted, dryingWanted,\n    acAvailable, acPending,\n    acPower: sys.ac?.power === true,\n    acModeCode: num(sys.ac?.modeCode),\n    acSetTemp: num(sys.ac?.setTemp),\n    automationOwned, autoMode\n  },\n  thresholds: cfg\n};\n\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1540,
+    "y": 160,
+    "wires": [
+      [
+        "dc731d227fd90519"
+      ]
+    ]
+  },
+  {
+    "id": "25e59bcb1ef5680e",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "A/C executor v1.1",
+    "func": "const plan = msg.payload || {};\n\nconst BUILDING_ID = \"1106921\";\nconst DEVICE_ID = \"147063004\";\n\nconst effective = plan.effective || plan;\nconst cmd = effective.command || null;\n\nmsg.topic = \"hvac/ac-exec/dryrun\";\nmsg.payload = {\n  meta: { builtAt: new Date().toISOString(), executorVersion: 1 },\n  plan,\n  effective,\n  melcloud: cmd ? {\n    device: {\n      buildingid: BUILDING_ID,\n      deviceid: DEVICE_ID,\n      command: cmd\n    }\n  } : null\n};\n\nnode.status({\n  fill: cmd ? \"yellow\" : \"green\",\n  shape: cmd ? \"dot\" : \"ring\",\n  text: cmd ? `prod | AC ${cmd.mode} ${cmd.temperature ?? \"\"}` : \"prod | AC idle\"\n});\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1530,
+    "y": 280,
+    "wires": [
+      [
+        "c1a6d6016abc259f",
+        "0e1a2f7b3c8d4a99"
+      ]
+    ]
+  },
+  {
+    "id": "acc13b0600d63f62",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Floor Arbitration",
+    "func": "// input: hvac/zone-context\nconst ctx = msg.payload || {};\nconst now = Date.now();\n\n// későbbre: globális padló módok\nconst floorMode = flow.get(\"hvac_floor_mode\") || \"auto\"; // auto | off | manual\n// most még csak átadjuk, de kitehetjük a payloadba\n\nctx.system = ctx.system || {};\nctx.system.control = ctx.system.control || {};\nctx.system.control.floorMode = floorMode;\n\nmsg.topic = \"hvac/zone-context\";\nmsg.payload = ctx;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 940,
+    "y": 280,
+    "wires": [
+      [
+        "dae97c8cd8dc75c0"
+      ]
+    ]
+  },
+  {
+    "id": "dc731d227fd90519",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "AC Arbitration v1.2",
+    "func": "// input: hvac/climate-plan\nconst plan = msg.payload || {};\nconst now = Date.now();\n\nconst o = flow.get(\"hvac_ac_override\") || null;\n\nlet effective = {\n  mode: plan.mode || \"idle\",\n  reason: plan.reason || \"planner\",\n  command: plan.command || null,\n  source: \"planner\",\n  overrideActive: false,\n  overrideUntil: null\n};\n\nconst automationOwned = flow.get(\"hvac_ac_automation_owned\") === true;\n\nif (o && o.enabled) {\n  const untilTs = o.until ? Date.parse(o.until) : null;\n  if (Number.isFinite(untilTs) && untilTs > now && o.command) {\n    effective = {\n      mode: \"override\",\n      reason: \"manual_override\",\n      command: o.command,\n      source: \"override\",\n      overrideActive: true,\n      overrideUntil: o.until\n    };\n  } else {\n    // lejárt -> töröljük\n    flow.set(\"hvac_ac_override\", null);\n  }\n}\n\n// Csak azt a kézi üzemet állítjuk le automatikusan, amelyet ez a flow indított.\n// A felhasználó által kézzel bekapcsolt klímát nem kapcsoljuk ki.\nif (!effective.overrideActive && !effective.command && automationOwned) {\n  if (plan.inputs?.acPower === true) {\n    effective.mode = \"idle\";\n    effective.reason = \"automatic_demand_cleared\";\n    effective.command = { power: \"off\" };\n    effective.source = \"planner_stop\";\n  } else {\n    flow.set(\"hvac_ac_automation_owned\", false);\n    flow.set(\"hvac_ac_auto_mode\", null);\n  }\n}\n\nmsg.topic = \"hvac/climate-effective\";\nmsg.payload = {\n  meta: { decidedAt: new Date().toISOString(), arbitrationVersion: 1 },\n  planner: plan,\n  effective\n};\n\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1530,
+    "y": 220,
+    "wires": [
+      [
+        "25e59bcb1ef5680e",
+        "1e1a65ad6d46cebf"
+      ]
+    ]
+  },
+  {
+    "id": "e2ef70a6a68bafc0",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "HVAC Floor executor (dry run)",
+    "mode": "link",
+    "links": [],
+    "x": 1135,
+    "y": 340,
+    "wires": []
+  },
+  {
+    "id": "c1a6d6016abc259f",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "HVAC A/C executor",
+    "mode": "link",
+    "links": [],
+    "x": 1675,
+    "y": 280,
+    "wires": []
+  },
+  {
+    "id": "1e1a65ad6d46cebf",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "HVAC AC Arbitration",
+    "mode": "link",
+    "links": [],
+    "x": 1675,
+    "y": 220,
+    "wires": []
+  },
+  {
+    "id": "74a78db21dbde469",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "HVAC Zone Context",
+    "mode": "link",
+    "links": [],
+    "x": 1135,
+    "y": 160,
+    "wires": []
+  },
+  {
+    "id": "fe42aa81a861dd78",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "HVAC Zone planner",
+    "mode": "link",
+    "links": [],
+    "x": 1135,
+    "y": 220,
+    "wires": []
+  },
+  {
+    "id": "3a1458f9556680a5",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "HVAC normalize",
+    "mode": "link",
+    "links": [],
+    "x": 1135,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "c2a19e4d2cb2446f",
+    "type": "inject",
+    "z": "901bdeda80413cd9",
+    "name": "HVAC CONTROL ENABLE (startup)",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "5",
+    "topic": "hvac/control/enable",
+    "payload": "true",
+    "payloadType": "bool",
+    "x": 1370,
+    "y": 40,
+    "wires": [
+      [
+        "f9d8c7b6a5e44321"
+      ]
+    ]
+  },
+  {
+    "id": "a1c2b3d4e5f64789",
+    "type": "inject",
+    "z": "901bdeda80413cd9",
+    "name": "HVAC CONTROL DISABLE",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "hvac/control/disable",
+    "payload": "false",
+    "payloadType": "bool",
+    "x": 1360,
+    "y": 80,
+    "wires": [
+      [
+        "f9d8c7b6a5e44321"
+      ]
+    ]
+  },
+  {
+    "id": "f9d8c7b6a5e44321",
+    "type": "change",
+    "z": "901bdeda80413cd9",
+    "name": "set flow.hvac_control_enabled",
+    "rules": [
+      {
+        "t": "set",
+        "p": "hvac_control_enabled",
+        "pt": "flow",
+        "to": "payload",
+        "tot": "msg"
+      }
+    ],
+    "action": "",
+    "property": "",
+    "from": "",
+    "to": "",
+    "reg": false,
+    "x": 1650,
+    "y": 80,
+    "wires": [
+      [
+        "b0b1b2b3b4b5b6b7"
+      ]
+    ]
+  },
+  {
+    "id": "b0b1b2b3b4b5b6b7",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "debug | control enabled",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1890,
+    "y": 60,
+    "wires": []
+  },
+  {
+    "id": "7b0f6e7a9e8c4f1a",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Floor APPLY → iHost v2.1",
+    "func": "// Floor APPLY v2.1 — retryable commands\nconst enabled = flow.get(\"hvac_control_enabled\") === true;\nif (!enabled) {\n  node.status({ fill: \"grey\", shape: \"ring\", text: \"APPLY | DISABLED\" });\n  return [null, null];\n}\n\nconst p = msg.payload || {};\nconst multiF = p?.ihost?.F?.list?.multi || {};\nconst multiL = p?.ihost?.L?.list?.multi || {};\n\nfunction normAct(act) {\n  const a = String(act ?? \"\").toLowerCase().trim();\n  if (a === \"on\" || a === \"off\") return a;\n  if (a === \"true\" || a === \"1\") return \"on\";\n  if (a === \"false\" || a === \"0\") return \"off\";\n  return null;\n}\n\nfunction buildToggle(multi, lastKey, lastAtKey) {\n  const toggle = {};\n  for (const [ch, act] of Object.entries(multi || {})) {\n    const na = normAct(act);\n    if (na) toggle[String(ch)] = { toggleState: na };\n  }\n  if (!Object.keys(toggle).length) return { payload: null, dedup: false };\n\n  const sig = JSON.stringify(toggle);\n  const last = flow.get(lastKey);\n  const lastAt = Number(flow.get(lastAtKey)) || 0;\n  // Csak az ugyanazon ciklusban érkező duplikátumot szűrjük. Ha a hardver nem\n  // hajtotta végre a parancsot, a következő 5 perces állapotellenőrzés újraküldheti.\n  if (last === sig && Date.now() - lastAt < 60 * 1000) {\n    return { payload: null, dedup: true };\n  }\n\n  flow.set(lastKey, sig);\n  flow.set(lastAtKey, Date.now());\n  return { payload: { toggle }, dedup: false };\n}\n\nconst rF = buildToggle(multiF, \"last_apply_sig_F\", \"last_apply_at_F\");\nconst rL = buildToggle(multiL, \"last_apply_sig_L\", \"last_apply_at_L\");\n\nconst outF = rF.payload ? { topic: \"hvac/floor-exec/apply/F\", payload: rF.payload } : null;\nconst outL = rL.payload ? { topic: \"hvac/floor-exec/apply/L\", payload: rL.payload } : null;\n\nconst changes =\n  (rF.payload ? Object.keys(rF.payload.toggle).length : 0) +\n  (rL.payload ? Object.keys(rL.payload.toggle).length : 0);\n\nnode.status({\n  fill: changes ? \"green\" : \"grey\",\n  shape: changes ? \"dot\" : \"ring\",\n  text: changes ? `APPLY | relays:${changes}` : (rF.dedup || rL.dedup ? \"APPLY | dedup\" : \"APPLY | noop\")\n});\n\nreturn [outF, outL];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 970,
+    "y": 400,
+    "wires": [
+      [
+        "d9c0c8aa9c4e41de"
+      ],
+      [
+        "5b4c1a8f7f1a4c33"
+      ]
+    ]
+  },
+  {
+    "id": "d9c0c8aa9c4e41de",
+    "type": "put-device-state",
+    "z": "901bdeda80413cd9",
+    "name": "Relay F ← put-device-state",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000001",
+    "state": "",
+    "x": 980,
+    "y": 460,
+    "wires": [
+      [
+        "71ad2cc67f9c4c8a"
+      ]
+    ],
+    "icon": "font-awesome/fa-bolt"
+  },
+  {
+    "id": "5b4c1a8f7f1a4c33",
+    "type": "put-device-state",
+    "z": "901bdeda80413cd9",
+    "name": "Relay L ← put-device-state",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000002",
+    "state": "",
+    "x": 980,
+    "y": 500,
+    "wires": [
+      [
+        "dee7abbb1ca0b9c2"
+      ]
+    ],
+    "icon": "font-awesome/fa-bolt"
+  },
+  {
+    "id": "71ad2cc67f9c4c8a",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "debug | APPLY floor",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1360,
+    "y": 460,
+    "wires": []
+  },
+  {
+    "id": "0e1a2f7b3c8d4a99",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "A/C APPLY → MELCloud v1.4",
+    "func": "// A/C APPLY v1.4 — dedicated MELCloud branches: output 1 heat, output 2 cooling\nconst enabled = flow.get(\"hvac_control_enabled\") === true;\nif (!enabled) {\n  node.status({ fill: \"grey\", shape: \"ring\", text: \"APPLY | DISABLED\" });\n  return null;\n}\n\nconst p = msg.payload || {};\nconst dev = p?.melcloud?.device || null;\nconst cmd = dev?.command || null;\n\nif (!dev || !cmd) {\n  node.status({ fill: \"grey\", shape: \"ring\", text: \"APPLY | AC noop\" });\n  return null;\n}\n\nconst command = { ...cmd };\nif (command.temperature !== undefined && command.settemperature === undefined) {\n  command.settemperature = command.temperature;\n}\nif (command.fanspeed !== undefined && command.setfanspeed === undefined) {\n  command.setfanspeed = command.fanspeed;\n}\n\nfunction normalizeMode(value) {\n  const mode = String(value || \"\").toLowerCase();\n  if (mode === \"heat\" || mode === \"heating\") return \"heat\";\n  if (mode === \"cool\" || mode === \"cooling\") return \"cooling\";\n  if (mode === \"dry\" || mode === \"drying\") return \"dry\";\n  return null;\n}\n\nconst previousMode = normalizeMode(flow.get(\"hvac_ac_auto_mode\"));\nconst reportedModeCode = Number(p?.plan?.planner?.inputs?.acModeCode);\nlet routeMode = normalizeMode(command.mode);\n\n// A kikapcsolási parancs ugyanarra az ágra menjen, amelyik az automatikus\n// működést elindította. Újraindítás utáni tartalék a MELCloud mód-visszajelzés.\nif (command.power === \"off\") {\n  routeMode = previousMode;\n  if (!routeMode && reportedModeCode === 1) routeMode = \"heat\";\n  if (!routeMode && reportedModeCode === 2) routeMode = \"cooling\";\n}\n\n// Nincs külön szárító MELCloud node. A dry parancsot nem küldjük a hűtési\n// ágra, mert a fix cooling beállítás abból tényleges hűtést csinálna.\nif (routeMode === \"dry\") {\n  node.status({ fill: \"yellow\", shape: \"ring\", text: \"APPLY | dry tiltva\" });\n  return null;\n}\n\nif (routeMode !== \"heat\" && routeMode !== \"cooling\") {\n  node.status({ fill: \"red\", shape: \"ring\", text: \"APPLY | ismeretlen AC mód\" });\n  node.warn(\"A/C APPLY: a parancs nem irányítható biztonságosan fűtés vagy hűtés ágra\");\n  return null;\n}\n\nconst commandSig = routeMode + \":\" + JSON.stringify(command);\nconst lastSig = flow.get(\"hvac_ac_last_command_sig\");\nconst lastAt = Number(flow.get(\"hvac_ac_last_command_at\")) || 0;\nif (lastSig === commandSig && Date.now() - lastAt < 60 * 1000) {\n  node.status({ fill: \"grey\", shape: \"ring\", text: `APPLY | ${routeMode} dedup <60s` });\n  return null;\n}\n\nflow.set(\"hvac_ac_last_command_sig\", commandSig);\nflow.set(\"hvac_ac_last_command_at\", Date.now());\n\nmsg.topic = routeMode === \"heat\" ? \"hvac/ac-exec/heat\" : \"hvac/ac-exec/cooling\";\nmsg.device = {\n  buildingid: dev.buildingid,\n  deviceid: dev.deviceid,\n  command\n};\nmsg.payload = msg.device;\n\nif (command.power === \"on\") {\n  flow.set(\"hvac_ac_automation_owned\", true);\n  flow.set(\"hvac_ac_auto_mode\", routeMode);\n}\nif (command.power === \"off\") {\n  flow.set(\"hvac_ac_automation_owned\", false);\n  flow.set(\"hvac_ac_auto_mode\", null);\n}\n\nnode.status({\n  fill: routeMode === \"heat\" ? \"red\" : \"blue\",\n  shape: \"dot\",\n  text: `APPLY | ${routeMode} ${command.temperature ?? command.settemperature ?? \"\"}`\n});\n\n// 1. kimenet: fűtés, 2. kimenet: hűtés\nreturn routeMode === \"heat\" ? [msg, null] : [null, msg];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1570,
+    "y": 340,
+    "wires": [
+      [
+        "e7d4bd9a1bca4f15",
+        "21bff3eafafbbf75"
+      ],
+      [
+        "5c785583416684be"
+      ]
+    ]
+  },
+  {
+    "id": "e7d4bd9a1bca4f15",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "debug | APPLY ac",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1890,
+    "y": 340,
+    "wires": []
+  },
+  {
+    "id": "31bdc29205a90b00",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Home registry v2.0",
+    "func": "// Home Registry (init) — v3 (endpoint meta for multi-relays)\n// Injecteld egyszer deploy után (vagy once-at-start), majd futtasd a UI Seeder-t is.\n\nconst REG_KEY = \"home_registry\";\n\nconst registry = {\n  // --- Shutters\n  \"00000000-0000-4000-8000-000000000003\": { name: \"Nappali redőny I\", room: \"Nappali\", kind: \"shutter\" },\n  \"00000000-0000-4000-8000-000000000004\": { name: \"Nappali redőny II\", room: \"Nappali\", kind: \"shutter\" },\n  \"00000000-0000-4000-8000-000000000005\": { name: \"Hálószoba redőny I\", room: \"Hálószoba\", kind: \"shutter\" },\n  \"00000000-0000-4000-8000-000000000006\": { name: \"Hálószoba redőny II\", room: \"Hálószoba\", kind: \"shutter\" },\n  \"00000000-0000-4000-8000-000000000007\": { name: \"Gyerekszoba redőny I\", room: \"Gyerekszoba\", kind: \"shutter\" },\n  \"00000000-0000-4000-8000-000000000008\": { name: \"Gyerekszoba redőny II\", room: \"Gyerekszoba\", kind: \"shutter\" },\n\n  // --- Single switches\n  \"00000000-0000-4000-8000-000000000009\": { name: \"Gyerekszoba világítás\", room: \"Gyerekszoba\", kind: \"switch\" },\n  \"00000000-0000-4000-8000-000000000010\": { name: \"WC világítás\", room: \"WC\", kind: \"switch\" },\n  \"00000000-0000-4000-8000-000000000011\": { name: \"Fürdő világítás\", room: \"Fürdő\", kind: \"switch\" },\n\n  // --- Motion\n  \"0x0000000000000015\": { name: \"Mozgásérzékelő 1\", room: \"Előszoba\", kind: \"motion\" },\n\n  // --- Multi-relay 3CH (b9c7...) — csatornák külön szoba!\n  \"00000000-0000-4000-8000-000000000012\": {\n    name: \"Nappali 3CH relé\",\n    room: \"Nappali\",\n    kind: \"switch\",\n    endpoints: {\n      toggle1: { name: \"Dolgozó világítás\", room: \"Dolgozó\", kind: \"switch\" },\n      toggle2: { name: \"Nappali világítás\", room: \"Nappali\", kind: \"switch\" },\n      toggle3: { name: \"Kültér A kültér világítás\", room: \"Kültér\", kind: \"switch\" }\n    }\n  },\n\n  // --- Multi-relay 2CH (7566...)\n  \"00000000-0000-4000-8000-000000000013\": {\n    name: \"Hálószoba 2CH relé\",\n    room: \"Hálószoba\",\n    kind: \"switch\",\n    endpoints: {\n      toggle1: { name: \"Hálószoba világítás CH01\", room: \"Hálószoba\", kind: \"switch\" },\n      toggle2: { name: \"Hálószoba világítás CH02\", room: \"Hálószoba\", kind: \"switch\" }\n    }\n  },\n\n  // --- Multi-relay 4CH (bfaf...)\n  \"00000000-0000-4000-8000-000000000014\": {\n    name: \"4CH relé\",\n    room: \"Előszoba\",\n    kind: \"switch\",\n    endpoints: {\n      toggle1: { name: \"Kültér B kültér\", room: \"Kültér\", kind: \"switch\" },\n      toggle2: { name: \"Előszoba világítás\", room: \"Előszoba\", kind: \"switch\" },\n      toggle3: { name: \"Étkező világítás\", room: \"Étkező\", kind: \"switch\" },\n      toggle4: { name: \"Konyha spot világítás\", room: \"Konyha\", kind: \"switch\" }\n    }\n  }\n};\n\n// ✅ JAVÍTÁS: eltávolítva a törött reg[] blokk és a dupla flow.set\n\nflow.set(REG_KEY, registry);\nnode.status({ fill: \"green\", shape: \"dot\", text: `registry loaded (${Object.keys(registry).length})` });\nreturn null;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 390,
+    "y": 340,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "b6233608a8982a82",
+    "type": "inject",
+    "z": "901bdeda80413cd9",
+    "name": "Registry trigger",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "0.5",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 180,
+    "y": 340,
+    "wires": [
+      [
+        "31bdc29205a90b00"
+      ]
+    ]
+  },
+  {
+    "id": "2177f960e94b8952",
+    "type": "inject",
+    "z": "901bdeda80413cd9",
+    "name": "Tick / Poll 600s",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "600",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "0",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 120,
+    "y": 220,
+    "wires": [
+      [
+        "a7055de50b67aa32"
+      ]
+    ]
+  },
+  {
+    "id": "abbf74a0752cb0c6",
+    "type": "event-state",
+    "z": "901bdeda80413cd9",
+    "name": "Nappali redőny I Status",
+    "server": "516031aa10c84f99",
+    "list": "",
+    "category": "",
+    "device": "00000000-0000-4000-8000-000000000003",
+    "state": "all",
+    "x": 420,
+    "y": 1680,
+    "wires": [
+      [
+        "259bd0a2b53c4020"
+      ]
+    ]
+  },
+  {
+    "id": "e57a3dfab79a240c",
+    "type": "event-state",
+    "z": "901bdeda80413cd9",
+    "name": "Nappali redőny II Status",
+    "server": "516031aa10c84f99",
+    "list": "",
+    "category": "",
+    "device": "00000000-0000-4000-8000-000000000004",
+    "state": "all",
+    "x": 420,
+    "y": 1720,
+    "wires": [
+      [
+        "259bd0a2b53c4020"
+      ]
+    ]
+  },
+  {
+    "id": "8b1ec0fb99701bcb",
+    "type": "event-state",
+    "z": "901bdeda80413cd9",
+    "name": "Hálószoba redőny I Status",
+    "server": "516031aa10c84f99",
+    "list": "",
+    "category": "",
+    "device": "00000000-0000-4000-8000-000000000005",
+    "state": "all",
+    "x": 430,
+    "y": 1760,
+    "wires": [
+      [
+        "259bd0a2b53c4020"
+      ]
+    ]
+  },
+  {
+    "id": "fdd64f0e47e4bfe1",
+    "type": "event-state",
+    "z": "901bdeda80413cd9",
+    "name": "Hálószoba redőny II Status",
+    "server": "516031aa10c84f99",
+    "list": "",
+    "category": "",
+    "device": "00000000-0000-4000-8000-000000000006",
+    "state": "all",
+    "x": 430,
+    "y": 1800,
+    "wires": [
+      [
+        "259bd0a2b53c4020"
+      ]
+    ]
+  },
+  {
+    "id": "2520450379d55616",
+    "type": "event-state",
+    "z": "901bdeda80413cd9",
+    "name": "Gyerekszoba redőny I Status",
+    "server": "516031aa10c84f99",
+    "list": "",
+    "category": "",
+    "device": "00000000-0000-4000-8000-000000000007",
+    "state": "all",
+    "x": 420,
+    "y": 1840,
+    "wires": [
+      [
+        "259bd0a2b53c4020"
+      ]
+    ]
+  },
+  {
+    "id": "2c13857613d054ed",
+    "type": "event-state",
+    "z": "901bdeda80413cd9",
+    "name": "Gyerekszoba redőny II Status",
+    "server": "516031aa10c84f99",
+    "list": "",
+    "category": "",
+    "device": "00000000-0000-4000-8000-000000000008",
+    "state": "all",
+    "x": 420,
+    "y": 1880,
+    "wires": [
+      [
+        "259bd0a2b53c4020"
+      ]
+    ]
+  },
+  {
+    "id": "6c23995cac9c9dc8",
+    "type": "event-state",
+    "z": "901bdeda80413cd9",
+    "name": "Mozgásérzékelő 1",
+    "server": "516031aa10c84f99",
+    "list": "",
+    "category": "",
+    "device": "0x0000000000000016",
+    "state": "all",
+    "x": 410,
+    "y": 1920,
+    "wires": [
+      [
+        "259bd0a2b53c4020"
+      ]
+    ]
+  },
+  {
+    "id": "6f5211c5da35fb32",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Nappali lámpa",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Nappali - Nappali világítás",
+    "choiceId": "00000000-0000-4000-8000-000000000017_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 400,
+    "y": 1980,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "ab520ecbf0407ad0",
+    "type": "inject",
+    "z": "901bdeda80413cd9",
+    "name": "IKEA Polling",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "30",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "10",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 820,
+    "wires": [
+      [
+        "6f5211c5da35fb32",
+        "5c565129517b2b24",
+        "0f816d748c5e6bf5",
+        "e6c8a69c5df05584",
+        "ad1d41d721d9c2c8",
+        "2f9640b7c4847b35",
+        "a9bea6f054c3641d",
+        "96d82118b9df95f3",
+        "48f1fe53f1051fee",
+        "2dac992d9432264e",
+        "aae1c84d4db71640",
+        "cb362a353968796c",
+        "ea70b05af161b16a",
+        "8ece547d0524f284",
+        "dfc1dc592c6068ac",
+        "d8a173694351034d",
+        "162cc84544165358",
+        "389e1b54f3d85909",
+        "383cf23077592e2f",
+        "92dc6d498185fd1f",
+        "20822514965feebe",
+        "84451b838506255a",
+        "5df9668a4291a363",
+        "fea5b908dbd9fc85"
+      ]
+    ]
+  },
+  {
+    "id": "5c565129517b2b24",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Hálószoba lámpa 1",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Hálószoba  - Háló 01",
+    "choiceId": "00000000-0000-4000-8000-000000000018_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 410,
+    "y": 2020,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "0f816d748c5e6bf5",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Gyerekszoba lámpa",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Gyerekszoba - Gyerekszoba",
+    "choiceId": "00000000-0000-4000-8000-000000000019_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 420,
+    "y": 2100,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "e6c8a69c5df05584",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Konyhabútor világítás kapcsoló",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "controller - Konyha - Konyhabútor világítás",
+    "choiceId": "00000000-0000-4000-8000-000000000020_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 450,
+    "y": 2800,
+    "wires": [
+      [
+        "a8144293ad3cd726"
+      ]
+    ]
+  },
+  {
+    "id": "ad1d41d721d9c2c8",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Dolgozó SPOT 1",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Iroda - Fény 9",
+    "choiceId": "00000000-0000-4000-8000-000000000021_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 410,
+    "y": 2380,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "2f9640b7c4847b35",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Technika Motion Sensor",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "sensor - Technika - MYGGSPRAY wrlss mtn senso",
+    "choiceId": "00000000-0000-4000-8000-000000000022_2",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 430,
+    "y": 2880,
+    "wires": [
+      [
+        "a8144293ad3cd726"
+      ]
+    ]
+  },
+  {
+    "id": "a9bea6f054c3641d",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Konyha SPOT 1",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Étkező - Fény 12",
+    "choiceId": "00000000-0000-4000-8000-000000000023_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 400,
+    "y": 2220,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "96d82118b9df95f3",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Előszoba SPOT 1",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Előszoba - Fény 6",
+    "choiceId": "00000000-0000-4000-8000-000000000024_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 410,
+    "y": 2580,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "48f1fe53f1051fee",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Dolgozó vitrin világítás",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Iroda - Pax vitrin",
+    "choiceId": "00000000-0000-4000-8000-000000000025_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 420,
+    "y": 2540,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "70c24e4ac2445853",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Sonoff Nappali világítás",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000012",
+    "x": 430,
+    "y": 960,
+    "wires": [
+      [
+        "df35c54a2d82f55f"
+      ]
+    ]
+  },
+  {
+    "id": "bcc04473e535207b",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Sonoff Hálószoba világítás",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000013",
+    "x": 440,
+    "y": 1000,
+    "wires": [
+      [
+        "df35c54a2d82f55f"
+      ]
+    ]
+  },
+  {
+    "id": "1ea2563ba69e32a2",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Sonoff Gyerekszoba világítás",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000009",
+    "x": 440,
+    "y": 1040,
+    "wires": [
+      [
+        "df35c54a2d82f55f"
+      ]
+    ]
+  },
+  {
+    "id": "9cf82a0953d7036e",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Sonoff WC világítás",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000010",
+    "x": 410,
+    "y": 1080,
+    "wires": [
+      [
+        "df35c54a2d82f55f"
+      ]
+    ]
+  },
+  {
+    "id": "357b8b86b2587e41",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Sonoff Fürdőszoba világítás",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000011",
+    "x": 440,
+    "y": 1120,
+    "wires": [
+      [
+        "df35c54a2d82f55f"
+      ]
+    ]
+  },
+  {
+    "id": "cdc59d34e915f0fb",
+    "type": "inject",
+    "z": "901bdeda80413cd9",
+    "name": "Sonoff Polling",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "30",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "10",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 760,
+    "wires": [
+      [
+        "70c24e4ac2445853",
+        "bcc04473e535207b",
+        "1ea2563ba69e32a2",
+        "9cf82a0953d7036e",
+        "357b8b86b2587e41",
+        "d03f33f5f054e064",
+        "c8e3b7576719bafd",
+        "e92fcc75ec9c1957",
+        "23787f09b660af34",
+        "77fa96130f1a16b7",
+        "571ea3c7531834b9",
+        "211ad5665d516025",
+        "12bd645a13ba4361",
+        "807fef1aa60729dd",
+        "21f1f65679431c2c",
+        "75a388f6f3e6a7e7",
+        "f25046fa631edd68"
+      ]
+    ]
+  },
+  {
+    "id": "d03f33f5f054e064",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Sonoff Előszoba világítás",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000014",
+    "x": 430,
+    "y": 1160,
+    "wires": [
+      [
+        "df35c54a2d82f55f"
+      ]
+    ]
+  },
+  {
+    "id": "3e6ae44921b6ac19",
+    "type": "uibuilder",
+    "z": "901bdeda80413cd9",
+    "name": "NsCompact V1.0",
+    "topic": "",
+    "url": "nscompact",
+    "okToGo": true,
+    "fwdInMessages": false,
+    "allowScripts": false,
+    "allowStyles": false,
+    "copyIndex": true,
+    "templateFolder": "blank",
+    "extTemplate": "",
+    "showfolder": false,
+    "reload": true,
+    "sourceFolder": "src",
+    "deployedVersion": "7.5.0",
+    "showMsgUib": false,
+    "title": "",
+    "descr": "",
+    "editurl": "vscode://vscode-remote/ssh-remote+192.0.2.10/data/uibuilder/nscompact/?windowId=_blank",
+    "x": 1590,
+    "y": 660,
+    "wires": [
+      [
+        "55c992d5883b0272"
+      ],
+      [
+        "55c992d5883b0272"
+      ]
+    ]
+  },
+  {
+    "id": "23787f09b660af34",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "T&H Sensors",
+    "server": "516031aa10c84f99",
+    "category": "temperatureAndHumiditySensor",
+    "device": "all",
+    "x": 390,
+    "y": 740,
+    "wires": [
+      [
+        "44d9d3222f256cb0"
+      ]
+    ],
+    "inputLabels": [
+      "All Sensor Data"
+    ],
+    "outputLabels": [
+      "T&H/Room"
+    ],
+    "icon": "font-awesome/fa-thermometer-half"
+  },
+  {
+    "id": "e92fcc75ec9c1957",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Get Device Relay (F)",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000001",
+    "x": 420,
+    "y": 800,
+    "wires": [
+      [
+        "d67ac1424287689a"
+      ]
+    ],
+    "icon": "font-awesome/fa-sort"
+  },
+  {
+    "id": "c8e3b7576719bafd",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Get Device Relay (L)",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000002",
+    "x": 420,
+    "y": 840,
+    "wires": [
+      [
+        "d67ac1424287689a"
+      ]
+    ],
+    "icon": "font-awesome/fa-sort"
+  },
+  {
+    "id": "105fbb61d7d11fa6",
+    "type": "http request",
+    "z": "901bdeda80413cd9",
+    "name": "Request Open-Meteo (sample location)",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "body",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude=47.4979&longitude=19.0402&current=temperature_2m,relative_humidity_2m,weather_code,wind_speed_10m,wind_gusts_10m&hourly=temperature_2m,precipitation_probability,weather_code&daily=temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_sum,precipitation_probability_max&timezone=auto&forecast_days=2",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 460,
+    "y": 600,
+    "wires": [
+      [
+        "a47f4026ec03194b"
+      ]
+    ]
+  },
+  {
+    "id": "54a2751f879fb41f",
+    "type": "inject",
+    "z": "901bdeda80413cd9",
+    "name": "Weather polling",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "900",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "10",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 600,
+    "wires": [
+      [
+        "105fbb61d7d11fa6"
+      ]
+    ]
+  },
+  {
+    "id": "43cf4036fdeb8420",
+    "type": "link in",
+    "z": "901bdeda80413cd9",
+    "name": "Datacollector",
+    "links": [
+      "0dce8ea06c358786",
+      "13352991db8c58fa",
+      "4eac1a9db61e8f86",
+      "a3ff86a7d0a62ee8",
+      "a44ba46e144a49f4",
+      "a9bef7399feb3bc6",
+      "bc80cffaf7b15ed3",
+      "d8d7ccde7d8bdcde"
+    ],
+    "x": 1135,
+    "y": 660,
+    "wires": [
+      [
+        "43c4e9a14ccf4200",
+        "cb777ab7f7f587e6"
+      ]
+    ]
+  },
+  {
+    "id": "77fa96130f1a16b7",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Mozgásérzékelő 1",
+    "server": "516031aa10c84f99",
+    "category": "motionSensor",
+    "device": "0x0000000000000026",
+    "x": 410,
+    "y": 1600,
+    "wires": [
+      [
+        "f0309939f47a1114"
+      ]
+    ]
+  },
+  {
+    "id": "571ea3c7531834b9",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Gyerekszoba redőny I Status",
+    "server": "516031aa10c84f99",
+    "category": "curtain",
+    "device": "00000000-0000-4000-8000-000000000007",
+    "x": 420,
+    "y": 1520,
+    "wires": [
+      [
+        "f0309939f47a1114"
+      ]
+    ]
+  },
+  {
+    "id": "211ad5665d516025",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Gyerekszoba redőny II Status",
+    "server": "516031aa10c84f99",
+    "category": "curtain",
+    "device": "00000000-0000-4000-8000-000000000008",
+    "x": 420,
+    "y": 1560,
+    "wires": [
+      [
+        "f0309939f47a1114"
+      ]
+    ]
+  },
+  {
+    "id": "12bd645a13ba4361",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Hálószoba redőny II Status",
+    "server": "516031aa10c84f99",
+    "category": "curtain",
+    "device": "00000000-0000-4000-8000-000000000006",
+    "x": 440,
+    "y": 1460,
+    "wires": [
+      [
+        "f0309939f47a1114"
+      ]
+    ]
+  },
+  {
+    "id": "807fef1aa60729dd",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Hálószoba redőny I Status",
+    "server": "516031aa10c84f99",
+    "category": "curtain",
+    "device": "00000000-0000-4000-8000-000000000005",
+    "x": 440,
+    "y": 1420,
+    "wires": [
+      [
+        "f0309939f47a1114"
+      ]
+    ]
+  },
+  {
+    "id": "75a388f6f3e6a7e7",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Nappali redőny I Status",
+    "server": "516031aa10c84f99",
+    "category": "curtain",
+    "device": "00000000-0000-4000-8000-000000000003",
+    "x": 430,
+    "y": 1320,
+    "wires": [
+      [
+        "f0309939f47a1114"
+      ]
+    ]
+  },
+  {
+    "id": "21f1f65679431c2c",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Napppali redőny II status",
+    "server": "516031aa10c84f99",
+    "category": "curtain",
+    "device": "00000000-0000-4000-8000-000000000004",
+    "x": 430,
+    "y": 1360,
+    "wires": [
+      [
+        "f0309939f47a1114"
+      ]
+    ]
+  },
+  {
+    "id": "f25046fa631edd68",
+    "type": "get-devices",
+    "z": "901bdeda80413cd9",
+    "name": "Fürdőszoba szellőzés",
+    "server": "516031aa10c84f99",
+    "category": "switch",
+    "device": "00000000-0000-4000-8000-000000000027",
+    "x": 420,
+    "y": 900,
+    "wires": [
+      [
+        "a7d0d57993b407e8"
+      ]
+    ]
+  },
+  {
+    "id": "43c4e9a14ccf4200",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Unifier Function v5.4",
+    "func": "// ════════════════════════════════════════════════════════════\n//  == FUNCTION NODE: UNIFIER v5.4 ==\n//  Változás v5.3-hoz képest:\n//  - \"gateway\" típus kezelése: DIRIGERA HUB adatok (nextSunSet, nextSunRise, homestate)\n//  - \"motion\" típus kezelése: mozgásérzékelő (detected, room, battery)\n//  Új state ágak: state.gateway, state.motion\n// ════════════════════════════════════════════════════════════\n\nfunction quickHash(obj) {\n    const s = JSON.stringify(obj);\n    let h = 0;\n    for (let i = 0; i < s.length; i++) {\n        h = (Math.imul(31, h) + s.charCodeAt(i)) | 0;\n    }\n    return h;\n}\n\nfunction getState() {\n    const s = global.get(\"dash_state\") || {};\n    if (!s.weather)  s.weather = null;\n    if (!s.ac)       s.ac = null;\n    if (!s.sensors)  s.sensors = {};\n    if (!s.sensors.th)       s.sensors.th = {};\n    if (!s.sensors.switches) s.sensors.switches = {};\n    if (!s.sensors.shutters) s.sensors.shutters = {};\n    if (!s.lights)   s.lights = {};\n    if (!s.lights.bulbs)       s.lights.bulbs = {};\n    if (!s.lights.controllers) s.lights.controllers = {};\n    if (!s.gateway)  s.gateway = null;   // ÚJ: DIRIGERA HUB\n    if (!s.motion)   s.motion = {};      // ÚJ: mozgásérzékelők\n    if (!s._hash)    s._hash = null;\n    return s;\n}\n\n// ── Sonoff mapping ───────────────────────────────────────────\nconst SONOFF_FOR_LIGHT = {\n    \"nappali\":          [{ room: \"nappali\",  label: \"Nappali\" }],\n    \"lego_vitrin\":      [{ room: \"nappali\",  label: \"Dolgozó\" }],\n    \"dolgozo_spot_1\":   [{ room: \"nappali\",  label: \"Dolgozó\" }],\n    \"dolgozo_spot_2\":   [{ room: \"nappali\",  label: \"Dolgozó\" }],\n    \"dolgozo_spot_3\":   [{ room: \"nappali\",  label: \"Dolgozó\" }],\n    \"konyha_spot_1\":    [{ room: \"eloszoba\", label: \"Konyha\" }],\n    \"konyha_spot_2\":    [{ room: \"eloszoba\", label: \"Konyha\" }],\n    \"konyha_spot_3\":    [{ room: \"eloszoba\", label: \"Konyha\" }],\n    \"konyha_spot_4\":    [{ room: \"eloszoba\", label: \"Konyha\" }],\n    \"konyhabutor\":      [{ room: \"eloszoba\", label: \"Konyha\" }],\n    \"konyhabutor_fiok\": [{ room: \"eloszoba\", label: \"Konyha\" }],\n    \"halo_01\":          [{ room: \"halo\",     label: \"Háló 1\" }, { room: \"halo\", label: \"Háló 2\" }],\n    \"halo_02\":          [{ room: \"halo\",     label: \"Háló 1\" }, { room: \"halo\", label: \"Háló 2\" }],\n    \"gyerek\":           [{ room: \"gyerek\",   label: \"Gyerekszoba\" }],\n    \"eloszoba_bulb_1\":  [{ room: \"eloszoba\", label: \"Előszoba\" }],\n    \"eloszoba_bulb_2\":  [{ room: \"eloszoba\", label: \"Előszoba\" }],\n    \"eloszoba_bulb_3\":  [{ room: \"eloszoba\", label: \"Előszoba\" }],\n    \"technika\":         []   // folyamatos áram\n};\n\nfunction isSonoffOn(sonoffList, switchMap) {\n    if (sonoffList.length === 0) return true;\n    return sonoffList.some(sw => switchMap[sw.room] && switchMap[sw.room][sw.label] === true);\n}\n\n// ════════════════════════════════════════════════════════════\n//  FŐLOGIKA\n// ════════════════════════════════════════════════════════════\nconst state = getState();\nconst p = msg.payload;\nconst receivedAt = Date.now();\nstate._updated = state._updated || {};\nstate._updated.th = state._updated.th || {};\nstate._updated.switches = state._updated.switches || {};\n\nif (p && !Array.isArray(p) && p.type === \"weather\") {\n    const { type, ...data } = p;\n    state.weather = data;\n    state._updated.weather = receivedAt;\n}\nelse if (p && !Array.isArray(p) && p.type === \"ac\") {\n    const { type, ...data } = p;\n    state.ac = data;\n    state._updated.ac = receivedAt;\n}\nelse if (Array.isArray(p)) {\n    const items = p.flatMap(x => Array.isArray(x) ? x : [x]);\n\n    items.forEach(item => {\n        if (!item || !item.type) return;\n\n        switch (item.type) {\n\n            case \"th\":\n                state._updated.th[item.room] = receivedAt;\n                state.sensors.th[item.room] = {\n                    temp:    item.temp,\n                    hum:     item.hum,\n                    battery: item.battery,\n                    online:  item.online\n                };\n                break;\n\n            case \"switch\":\n                state._updated.switches[item.room] = state._updated.switches[item.room] || {};\n                state._updated.switches[item.room][item.label] = receivedAt;\n                if (!state.sensors.switches[item.room]) state.sensors.switches[item.room] = {};\n                state.sensors.switches[item.room][item.label] = item.state;\n                break;\n\n            case \"shutter\": {\n                if (!state.sensors.shutters[item.room]) state.sensors.shutters[item.room] = {};\n                const prev = state.sensors.shutters[item.room][item.label] || {};\n                state.sensors.shutters[item.room][item.label] = {\n                    pct:   (item.pct   != null) ? item.pct   : (prev.pct   ?? null),\n                    motor: (item.motor != null) ? item.motor : (prev.motor ?? null)\n                };\n                break;\n            }\n\n            case \"light\": {\n                const sonoffList = SONOFF_FOR_LIGHT[item.label] ?? null;\n                const sonoffOn = sonoffList === null\n                    ? item.reachable\n                    : isSonoffOn(sonoffList, state.sensors.switches);\n                const isOn = sonoffOn && item.reachable === true && item.on === true;\n\n                if (!state.lights.bulbs[item.room]) state.lights.bulbs[item.room] = {};\n                state.lights.bulbs[item.room][item.label] = {\n                    on:        isOn,\n                    level:     item.level,\n                    reachable: item.reachable,\n                    sonoffOn:  sonoffOn,\n                    ...(item.hue !== undefined ? { hue: item.hue, sat: item.sat, ct: item.ct } : {})\n                };\n                break;\n            }\n\n            case \"controller\":\n                state.lights.controllers[item.label] = {\n                    battery:   item.battery,\n                    reachable: item.reachable\n                };\n                break;\n\n            // ── ÚJ: DIRIGERA HUB ────────────────────────────\n            case \"gateway\":\n                state.gateway = {\n                    reachable:        item.reachable,\n                    backendConnected: item.backendConnected,\n                    homestate:        item.homestate,\n                    nextSunSet:       item.nextSunSet,\n                    nextSunRise:      item.nextSunRise,\n                    timezone:         item.timezone,\n                    firmwareVersion:  item.firmwareVersion\n                };\n                break;\n\n            // ── ÚJ: MOZGÁSÉRZÉKELŐ ──────────────────────────\n            case \"motion\": {\n                // room-kulcs: a dirigera \"Technika\" szobanévből → \"technika\"\n                const roomKey = (item.room || item.label || \"unknown\")\n                    .toLowerCase()\n                    .normalize(\"NFD\")\n                    .replace(/[\\u0300-\\u036f]/g, \"\")\n                    .trim();\n                state.motion[roomKey] = {\n                    detected:  item.detected,\n                    reachable: item.reachable,\n                    battery:   item.battery,\n                    label:     item.label\n                };\n                break;\n            }\n        }\n    });\n}\n\nconst newHash = quickHash({\n    w: state.weather,\n    a: state.ac,\n    s: state.sensors,\n    l: state.lights,\n    g: state.gateway,\n    m: state.motion\n});\n\nif (!msg.injected && newHash === state._hash) return null;\n\nstate._hash = newHash;\nstate._ts = receivedAt;\nglobal.set(\"dash_state\", state);\n\nreturn {\n    payload: {\n        weather: state.weather,\n        ac:      state.ac,\n        sensors: state.sensors,\n        lights:  state.lights,\n        gateway: state.gateway,\n        motion:  state.motion,\n        _ts:     state._ts,\n        _updated: state._updated\n    }\n};\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1300,
+    "y": 660,
+    "wires": [
+      [
+        "3e6ae44921b6ac19",
+        "7172ae21ddbb1580",
+        "2e18f381fa4417ee",
+        "eccc2fe8eebea287"
+      ]
+    ]
+  },
+  {
+    "id": "ecf6e89666663d19",
+    "type": "inject",
+    "z": "901bdeda80413cd9",
+    "name": "Tick / Poll 600s",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "900",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "10",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 160,
+    "y": 680,
+    "wires": [
+      [
+        "06e7da8c6ee1a34c"
+      ]
+    ]
+  },
+  {
+    "id": "2dac992d9432264e",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Hálószoba lámpa 2",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Hálószoba  - Háló 02",
+    "choiceId": "00000000-0000-4000-8000-000000000028_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 410,
+    "y": 2060,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "aae1c84d4db71640",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Hálószoba kontroller",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "controller - Hálószoba  - BILRESA Háló",
+    "choiceId": "00000000-0000-4000-8000-000000000029_3",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 420,
+    "y": 2720,
+    "wires": [
+      [
+        "a8144293ad3cd726"
+      ]
+    ]
+  },
+  {
+    "id": "cb362a353968796c",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Gyerekszoba kontroller",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "controller - Gyerekszoba - BILRESA Gyerekszoba",
+    "choiceId": "00000000-0000-4000-8000-000000000030_3",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 430,
+    "y": 2760,
+    "wires": [
+      [
+        "a8144293ad3cd726"
+      ]
+    ]
+  },
+  {
+    "id": "ea70b05af161b16a",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Konyhabútor világítás",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Konyha - Konyhaszekrény",
+    "choiceId": "00000000-0000-4000-8000-000000000031_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 420,
+    "y": 2140,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "8ece547d0524f284",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Konyhabútor fiók világítás",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Konyha - Fiókvilágítás",
+    "choiceId": "00000000-0000-4000-8000-000000000032_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 430,
+    "y": 2180,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "dfc1dc592c6068ac",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Konyha SPOT 2",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Étkező - Fény 13",
+    "choiceId": "00000000-0000-4000-8000-000000000033_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 400,
+    "y": 2260,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "d8a173694351034d",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Konyha SPOT 3",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Étkező - Fény 14",
+    "choiceId": "00000000-0000-4000-8000-000000000034_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 400,
+    "y": 2300,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "162cc84544165358",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Konyha SPOT 4",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Étkező - Fény 15",
+    "choiceId": "00000000-0000-4000-8000-000000000035_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 400,
+    "y": 2340,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "389e1b54f3d85909",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Dolgozó SPOT 2",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Iroda - Fény 10",
+    "choiceId": "00000000-0000-4000-8000-000000000036_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 410,
+    "y": 2420,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "383cf23077592e2f",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Dolgozó SPOT 3",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Iroda - Fény 11",
+    "choiceId": "00000000-0000-4000-8000-000000000037_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 410,
+    "y": 2460,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "92dc6d498185fd1f",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Technika lámpa",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Technika - Technika lámpa",
+    "choiceId": "00000000-0000-4000-8000-000000000038_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 400,
+    "y": 2500,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "20822514965feebe",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Dolgozó vitrin világítás kontroller",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "controller - Iroda - BILRESA SW pax",
+    "choiceId": "00000000-0000-4000-8000-000000000039_3",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 450,
+    "y": 2840,
+    "wires": [
+      [
+        "a8144293ad3cd726"
+      ]
+    ]
+  },
+  {
+    "id": "84451b838506255a",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Előszoba SPOT 2",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Előszoba - Fény 7",
+    "choiceId": "00000000-0000-4000-8000-000000000040_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 410,
+    "y": 2620,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "5df9668a4291a363",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "Előszoba SPOT 3",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "light - Előszoba - Fény 8",
+    "choiceId": "00000000-0000-4000-8000-000000000041_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 410,
+    "y": 2660,
+    "wires": [
+      [
+        "bdf850824cbf22df"
+      ]
+    ]
+  },
+  {
+    "id": "fea5b908dbd9fc85",
+    "type": "dirigera",
+    "z": "901bdeda80413cd9",
+    "name": "IKEA DIRIGERA HUB",
+    "server": "3e71ef83f1661cb7",
+    "choiceType": "specificDevice",
+    "choiceTitle": "gateway - (no room defined) - example.home",
+    "choiceId": "00000000-0000-4000-8000-000000000042_1",
+    "choiceIcon": "",
+    "outputs": 1,
+    "x": 420,
+    "y": 2920,
+    "wires": [
+      [
+        "a8144293ad3cd726",
+        "e6a830faeda22d22"
+      ]
+    ]
+  },
+  {
+    "id": "cb777ab7f7f587e6",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "Rawdata debug",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1280,
+    "y": 620,
+    "wires": []
+  },
+  {
+    "id": "0dce8ea06c358786",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "Request Open-Meteo (mintahely)",
+    "mode": "link",
+    "links": [
+      "43cf4036fdeb8420"
+    ],
+    "x": 885,
+    "y": 600,
+    "wires": []
+  },
+  {
+    "id": "13352991db8c58fa",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "Melcloud - Mitsubishi AY50",
+    "mode": "link",
+    "links": [
+      "43cf4036fdeb8420"
+    ],
+    "x": 885,
+    "y": 680,
+    "wires": []
+  },
+  {
+    "id": "4eac1a9db61e8f86",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "T&H Sensors",
+    "mode": "link",
+    "links": [
+      "43cf4036fdeb8420"
+    ],
+    "x": 885,
+    "y": 740,
+    "wires": []
+  },
+  {
+    "id": "a3ff86a7d0a62ee8",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "Sonoff Get devices",
+    "mode": "link",
+    "links": [
+      "43cf4036fdeb8420"
+    ],
+    "x": 1035,
+    "y": 960,
+    "wires": []
+  },
+  {
+    "id": "d8d7ccde7d8bdcde",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "Sonoff Shutter Devices",
+    "mode": "link",
+    "links": [
+      "43cf4036fdeb8420"
+    ],
+    "x": 1015,
+    "y": 1460,
+    "wires": []
+  },
+  {
+    "id": "a44ba46e144a49f4",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "Nappali redőny 1 event",
+    "mode": "link",
+    "links": [
+      "43cf4036fdeb8420"
+    ],
+    "x": 945,
+    "y": 1800,
+    "wires": []
+  },
+  {
+    "id": "a9bef7399feb3bc6",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "IKEA lights",
+    "mode": "link",
+    "links": [
+      "43cf4036fdeb8420"
+    ],
+    "x": 945,
+    "y": 2340,
+    "wires": []
+  },
+  {
+    "id": "7172ae21ddbb1580",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "Unifier debug",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1530,
+    "y": 620,
+    "wires": []
+  },
+  {
+    "id": "a47f4026ec03194b",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize weather",
+    "func": "// ════════════════════════════════════════════════════════════\n//  == FUNCTION NODE: normalize_weather ==\n//  Elhelyezés: HTTP request (Open-Meteo) után\n//  Trigger: inject 15 percenként\n// ════════════════════════════════════════════════════════════\n\nmsg.injected = true; // inject triggerelte\n\nconst raw = msg.payload;\nconst c   = raw.current;\nconst d   = raw.daily;\nconst h   = raw.hourly;\n\nconst idx   = h.time.findIndex(t => t === c.time);\nconst start = idx >= 0 ? idx : 0;\n\nconst forecast = [];\nfor (let i = 0; i < 8; i++) {\n    const j = start + i;\n    if (j >= h.time.length) break;\n    forecast.push({\n        time: h.time[j],\n        temp: h.temperature_2m[j],\n        pop:  h.precipitation_probability[j],\n        code: h.weather_code[j]\n    });\n}\n\nmsg.payload = {\n    type:      \"weather\",\n    time:      c.time,\n    temp:      c.temperature_2m,\n    humidity:  c.relative_humidity_2m,\n    code:      c.weather_code,\n    wind:      c.wind_speed_10m,\n    gust:      c.wind_gusts_10m,\n    tempMax:   d.temperature_2m_max[0],\n    tempMin:   d.temperature_2m_min[0],\n    sunrise:   d.sunrise[0].slice(11, 16),\n    sunset:    d.sunset[0].slice(11, 16),\n    precipSum: d.precipitation_sum[0],\n    precipMax: d.precipitation_probability_max[0],\n    forecast:  forecast\n};\n\n// ── Node status ──────────────────────────────────────────────\nconst wmoIcons = {\n    0: \"☀️\", 1: \"🌤️\", 2: \"⛅\", 3: \"☁️\",\n    45: \"🌫️\", 48: \"🌫️\",\n    51: \"🌦️\", 53: \"🌦️\", 55: \"🌧️\",\n    61: \"🌧️\", 63: \"🌧️\", 65: \"🌧️\",\n    71: \"🌨️\", 73: \"🌨️\", 75: \"❄️\",\n    80: \"🌦️\", 81: \"🌧️\", 82: \"⛈️\",\n    95: \"⛈️\", 96: \"⛈️\", 99: \"⛈️\"\n};\n\nconst icon = wmoIcons[msg.payload.code] ?? \"🌡️\";\nconst t    = msg.payload.temp;\nconst hum  = msg.payload.humidity;\nconst wind = msg.payload.wind;\n\nnode.status({\n    fill:  t > 30 ? \"red\" : t > 20 ? \"yellow\" : t > 10 ? \"green\" : \"blue\",\n    shape: \"dot\",\n    text:  `${icon} ${t}°C  💧${hum}%  💨${wind}km/h`\n});\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 730,
+    "y": 600,
+    "wires": [
+      [
+        "0dce8ea06c358786"
+      ]
+    ]
+  },
+  {
+    "id": "44d9d3222f256cb0",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize T&H",
+    "func": "// ════════════════════════════════════════════════════════════\n//  == FUNCTION NODE: normalize_th ==\n//  Elhelyezés: iHost get-devices (T&H sensors, all) után\n//  Trigger: inject 30 másodpercenként\n//  A node \"all devices\" módban adja vissza az összes T&H szenzort\n// ════════════════════════════════════════════════════════════\n\nmsg.injected = true; // inject triggerelte\n\nconst ROOM_MAP = {\n    \"Nappali T&H\":     \"nappali\",\n    \"Hálószoba T&H\":   \"halo\",\n    \"Gyerekszoba T&H\": \"gyerek\",\n    \"Fürdőszoba T&H\":  \"furdo\",\n    \"WC T&H\":          \"wc\"\n};\n\nconst devices = Array.isArray(msg.payload) ? msg.payload : [msg.payload];\nconst out = [];\n\ndevices.forEach(dev => {\n    const room = ROOM_MAP[dev.name];\n    if (!room) return;\n    out.push({\n        type:    \"th\",\n        room:    room,\n        temp:    dev.state.temperature?.temperature ?? null,\n        hum:     dev.state.humidity?.humidity ?? null,\n        battery: dev.state.battery?.battery ?? null,\n        online:  dev.online\n    });\n});\n\nmsg.payload = out;\n\n// ── Node status ──────────────────────────────────────────────\nconst sensors = msg.payload;\n\nconst offline  = sensors.filter(s => !s.online);\nconst lowBat   = sensors.filter(s => s.battery !== null && s.battery < 20);\nconst total    = sensors.length;\nconst online   = sensors.filter(s => s.online).length;\n\nif (total === 0) {\n    node.status({ fill: \"red\", shape: \"ring\", text: \"⚠️ Nincs szenzor\" });\n    return msg;\n}\n\nif (offline.length > 0) {\n    const names = offline.map(s => s.room).join(\", \");\n    node.status({ fill: \"red\", shape: \"ring\", text: `⚠️ Offline: ${names}` });\n    return msg;\n}\n\nif (lowBat.length > 0) {\n    const names = lowBat.map(s => `${s.room}(${s.battery}%)`).join(\", \");\n    node.status({ fill: \"yellow\", shape: \"dot\", text: `🪫 ${names}` });\n    return msg;\n}\n\n// Minden OK → átlagok mutatása\nconst temps = sensors.filter(s => s.temp !== null).map(s => s.temp);\nconst hums  = sensors.filter(s => s.hum  !== null).map(s => s.hum);\nconst avgT  = (temps.reduce((a, b) => a + b, 0) / temps.length).toFixed(1);\nconst avgH  = Math.round(hums.reduce((a, b) => a + b, 0) / hums.length);\n\nnode.status({\n    fill:  \"green\",\n    shape: \"dot\",\n    text:  `✅ ${online}/${total}  🌡️ ${avgT}°C  💧${avgH}%`\n});\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 720,
+    "y": 740,
+    "wires": [
+      [
+        "4eac1a9db61e8f86"
+      ]
+    ]
+  },
+  {
+    "id": "47c6f2ae8fea32d1",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize Light Sonoff Switches",
+    "func": "// ════════════════════════════════════════════════════════════\n//  == FUNCTION NODE: normalize_light_switches ==\n//  Elhelyezés: join(6) után — Nappali, Háló, Gyerek, WC, Fürdő, Előszoba\n//  Trigger: inject 30 másodpercenként\n// ════════════════════════════════════════════════════════════\n\nmsg.injected = true;\n\nconst TOGGLE_MAP = {\n    \"00000000-0000-4000-8000-000000000012\": { room: \"nappali\",  ch: { \"1\":\"Dolgozó\", \"2\":\"Nappali\", \"3\":\"Kültér A\" } },\n    \"00000000-0000-4000-8000-000000000013\": { room: \"halo\",     ch: { \"1\":\"Háló 1\", \"2\":\"Háló 2\" } },\n    \"00000000-0000-4000-8000-000000000009\": { room: \"gyerek\",   ch: null },\n    \"00000000-0000-4000-8000-000000000010\": { room: \"wc\",       ch: null },\n    \"00000000-0000-4000-8000-000000000011\": { room: \"furdo\",    ch: null },\n    \"00000000-0000-4000-8000-000000000014\": { room: \"eloszoba\", ch: { \"1\":\"Kültér B\", \"2\":\"Előszoba\", \"3\":\"Étkező\", \"4\":\"Konyha\" } }\n};\n\nconst devices = msg.payload.flat ? msg.payload.flat() : [].concat(...msg.payload);\nconst outS = [];\n\ndevices.forEach(dev => {\n    if (!dev || !dev.serial_number) return;\n    const map = TOGGLE_MAP[dev.serial_number];\n    if (!map) return;\n\n    if (map.ch && dev.state.toggle) {\n        Object.entries(dev.state.toggle).forEach(([ch, val]) => {\n            const label = map.ch[ch];\n            if (!label) return;\n            outS.push({ type:\"switch\", room:map.room, label:label, state: val.toggleState === \"on\" });\n        });\n    } else if (dev.state.power) {\n        outS.push({ type:\"switch\", room:map.room, label:dev.name, state: dev.state.power.powerState === \"on\" });\n    }\n});\n\n// ── Node status ──────────────────────────────────────────────\nconst total  = outS.length;\nconst onList = outS.filter(s => s.state === true);\nconst on     = onList.length;\n\nif (total === 0) {\n    node.status({ fill: \"red\", shape: \"ring\", text: \"⚠️ Nincs kapcsoló\" });\n} else if (on === 0) {\n    node.status({ fill: \"grey\", shape: \"dot\", text: `⏹️ Minden ki (${total})` });\n} else {\n    const byRoom = {};\n    onList.forEach(s => {\n        const room = s.room ?? \"ismeretlen\";\n        if (!byRoom[room]) byRoom[room] = 0;\n        byRoom[room]++;\n    });\n    const summary = Object.entries(byRoom)\n        .map(([room, count]) => `${room}(${count})`)\n        .join(\"  \");\n    node.status({ fill: \"green\", shape: \"dot\", text: `💡 ${on}/${total}  ${summary}` });\n}\n\nmsg.payload = outS;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 850,
+    "y": 1060,
+    "wires": [
+      [
+        "a3ff86a7d0a62ee8",
+        "9522704ff011c12d"
+      ]
+    ]
+  },
+  {
+    "id": "f0309939f47a1114",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize Shutter Poll",
+    "func": "// ════════════════════════════════════════════════════════════\n//  == FUNCTION NODE: normalize_shutter_poll ==\n//  Elhelyezés: iHost get-devices (curtain) után\n//  Trigger: inject 30 másodpercenként\n// ════════════════════════════════════════════════════════════\n\nmsg.injected = true; // inject triggerelte \n\nconst SHUTTER_MAP = {\n    \"00000000-0000-4000-8000-000000000003\": { room: \"nappali\", label: \"Redőny I\" },\n    \"00000000-0000-4000-8000-000000000004\": { room: \"nappali\", label: \"Redőny II\" },\n    \"00000000-0000-4000-8000-000000000005\": { room: \"halo\", label: \"Redőny I\" },\n    \"00000000-0000-4000-8000-000000000006\": { room: \"halo\", label: \"Redőny II\" },\n    \"00000000-0000-4000-8000-000000000007\": { room: \"gyerek\", label: \"Redőny I\" },\n    \"00000000-0000-4000-8000-000000000008\": { room: \"gyerek\", label: \"Redőny II\" }\n};\n\nconst devicesP = Array.isArray(msg.payload) ? msg.payload : [msg.payload];\nconst outP = [];\n\ndevicesP.forEach(dev => {\n    const info = SHUTTER_MAP[dev.serial_number];\n    if (!info) return;\n    outP.push({\n        type: \"shutter\",\n        room: info.room,\n        label: info.label,\n        pct: dev.state.percentage?.percentage ?? null,\n        motor: dev.state[\"motor-control\"]?.motorControl ?? null\n    });\n});\n\n// ── Node status ──────────────────────────────────────────────\n// pct konvenció: 0 = nyitva (motor fent), 100 = zárva (motor lent)\nconst total = outP.length;\nconst moving = outP.filter(s => s.motor !== null && s.motor !== \"stop\");\nconst closed = outP.filter(s => s.pct >= 90);\nconst open = outP.filter(s => s.pct <= 10);\n\nif (total === 0) {\n    node.status({ fill: \"red\", shape: \"ring\", text: \"⚠️ Nincs redőny\" });\n} else if (moving.length > 0) {\n    const names = moving.map(s => `${s.room} ${s.label} (${s.motor})`).join(\", \");\n    node.status({ fill: \"yellow\", shape: \"ring\", text: `⏳ Mozog: ${names}` });\n} else if (closed.length === total) {\n    node.status({ fill: \"grey\", shape: \"dot\", text: `⬛ Mind zárva (${total})` });\n} else if (open.length === total) {\n    node.status({ fill: \"green\", shape: \"dot\", text: `⬜ Mind nyitva (${total})` });\n} else {\n    const summary = outP.map(s => `${s.pct ?? \"?\"}%`).join(\"  \");\n    node.status({ fill: \"blue\", shape: \"dot\", text: `🪟 ${summary}` });\n}\n\nmsg.payload = outP;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 820,
+    "y": 1460,
+    "wires": [
+      [
+        "d8d7ccde7d8bdcde",
+        "8f085272cee4465d"
+      ]
+    ]
+  },
+  {
+    "id": "259bd0a2b53c4020",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize Shutter Event State",
+    "func": "// ════════════════════════════════════════════════════════════\n//  == FUNCTION NODE: normalize_shutter_event ==\n//  Elhelyezés: iHost event-state (curtain) után — MIND A 6 REDŐNYHÖZ\n//  Trigger: esemény alapú (mozgáskor automatikusan jön)\n// ════════════════════════════════════════════════════════════\n\nconst SHUTTER_MAP_EV = {\n    \"00000000-0000-4000-8000-000000000003\": { room:\"nappali\", label:\"Redőny I\" },\n    \"00000000-0000-4000-8000-000000000004\": { room:\"nappali\", label:\"Redőny II\" },\n    \"00000000-0000-4000-8000-000000000005\": { room:\"halo\",    label:\"Redőny I\" },\n    \"00000000-0000-4000-8000-000000000006\": { room:\"halo\",    label:\"Redőny II\" },\n    \"00000000-0000-4000-8000-000000000007\": { room:\"gyerek\",  label:\"Redőny I\" },\n    \"00000000-0000-4000-8000-000000000008\": { room:\"gyerek\",  label:\"Redőny II\" }\n};\n\nconst serial = msg.payload?.endpoint?.serial_number;\nconst infoEv = SHUTTER_MAP_EV[serial];\nif (!infoEv) return null;\n\nconst pct = msg.payload?.payload?.percentage?.percentage ?? null;\n\nmsg.payload = [{\n    type:  \"shutter\",\n    room:  infoEv.room,\n    label: infoEv.label,\n    pct:   pct,\n    motor: null\n}];\n\n// ── Node status ──────────────────────────────────────────────\nconst item = msg.payload[0];\n\nif (!item) {\n    node.status({ fill: \"red\", shape: \"ring\", text: \"⚠️ Ismeretlen eszköz\" });\n} else {\n    const pct  = item.pct ?? \"?\";\n    const icon = pct === 0 ? \"⬛\" : pct === 100 ? \"⬜\" : \"🪟\";\n    node.status({\n        fill:  pct === 0 ? \"grey\" : pct === 100 ? \"green\" : \"blue\",\n        shape: \"dot\",\n        text:  `${icon} ${item.room} ${item.label}: ${pct}%`\n    });\n}\n\nmsg.payload = [item];\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 750,
+    "y": 1800,
+    "wires": [
+      [
+        "a44ba46e144a49f4"
+      ]
+    ]
+  },
+  {
+    "id": "fa26a58dd20b1e60",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize IKEA lights",
+    "func": "// ════════════════════════════════════════════════════════════\n//  == FUNCTION NODE: normalize_ikea_lights ==\n//  Elhelyezés: join(18) után\n//  Trigger: inject 30mp\n// ════════════════════════════════════════════════════════════\n\nmsg.injected = true;\n\nconst LIGHT_MAP = {\n    \"00000000-0000-4000-8000-000000000017_1\": { room: \"nappali\", label: \"nappali\" },\n    \"00000000-0000-4000-8000-000000000018_1\": { room: \"halo\", label: \"halo_01\" },\n    \"00000000-0000-4000-8000-000000000028_1\": { room: \"halo\", label: \"halo_02\" },\n    \"00000000-0000-4000-8000-000000000019_1\": { room: \"gyerek\", label: \"gyerek\" },\n    \"00000000-0000-4000-8000-000000000031_1\": { room: \"nappali\", label: \"konyhabutor\" },\n    \"00000000-0000-4000-8000-000000000032_1\": { room: \"nappali\", label: \"konyhabutor_fiok\" },\n    \"00000000-0000-4000-8000-000000000023_1\": { room: \"nappali\", label: \"konyha_spot_1\" },\n    \"00000000-0000-4000-8000-000000000033_1\": { room: \"nappali\", label: \"konyha_spot_2\" },\n    \"00000000-0000-4000-8000-000000000034_1\": { room: \"nappali\", label: \"konyha_spot_3\" },\n    \"00000000-0000-4000-8000-000000000035_1\": { room: \"nappali\", label: \"konyha_spot_4\" },\n    \"00000000-0000-4000-8000-000000000021_1\": { room: \"nappali\", label: \"dolgozo_spot_1\" },\n    \"00000000-0000-4000-8000-000000000036_1\": { room: \"nappali\", label: \"dolgozo_spot_2\" },\n    \"00000000-0000-4000-8000-000000000037_1\": { room: \"nappali\", label: \"dolgozo_spot_3\" },\n    \"00000000-0000-4000-8000-000000000025_1\": { room: \"nappali\", label: \"lego_vitrin\" },\n    \"00000000-0000-4000-8000-000000000024_1\": { room: \"eloszoba\", label: \"eloszoba_bulb_1\" },\n    \"00000000-0000-4000-8000-000000000040_1\": { room: \"eloszoba\", label: \"eloszoba_bulb_2\" },\n    \"00000000-0000-4000-8000-000000000041_1\": { room: \"eloszoba\", label: \"eloszoba_bulb_3\" },\n    \"00000000-0000-4000-8000-000000000038_1\": { room: \"technika\", label: \"technika\" }\n};\n\nconst devices = msg.payload.flat ? msg.payload.flat() : [].concat(...msg.payload);\nconst outL = [];\n\ndevices.forEach(devL => {\n    const map = LIGHT_MAP[devL.id];\n    if (!map) return;\n\n    const attr = devL.attributes;\n    const item = {\n        type: \"light\",\n        room: map.room,\n        label: map.label,\n        on: attr.isOn,\n        level: attr.lightLevel,\n        reachable: devL.isReachable\n    };\n    if (attr.colorMode) {\n        item.hue = attr.colorHue;\n        item.sat = attr.colorSaturation;\n        item.ct = attr.colorTemperature;\n    }\n    outL.push(item);\n});\n\n// ── Node status ──────────────────────────────────────────────\nconst total = outL.length;\nconst offline = outL.filter(l => !l.reachable);\nconst onList = outL.filter(l => l.on && l.reachable);\nconst on = onList.length;\n\nif (total === 0) {\n    node.status({ fill: \"red\", shape: \"ring\", text: \"⚠️ Nincs lámpa\" });\n} else if (offline.length > 0) {\n    node.status({ fill: \"yellow\", shape: \"ring\", text: `⚠️ Offline: ${offline.length}db  💡 ${on} be` });\n} else if (on === 0) {\n    node.status({ fill: \"grey\", shape: \"dot\", text: `⏹️ Minden ki` });\n} else {\n    const labels = onList.map(l => `${l.label}(${l.level}%)`).join(\"  \");\n    node.status({ fill: \"yellow\", shape: \"dot\", text: `💡 ${labels}` });\n}\n\nmsg.payload = outL;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 800,
+    "y": 2340,
+    "wires": [
+      [
+        "a9bef7399feb3bc6",
+        "75a8b2a5d607d2b9"
+      ]
+    ]
+  },
+  {
+    "id": "a8144293ad3cd726",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize IKEA controllers",
+    "func": "// ════════════════════════════════════════════════════════════\n//  == FUNCTION NODE: normalize_ikea_controllers v2 ==\n//  Változás v1-höz képest:\n//  - DIRIGERA HUB → \"gateway\" típus (nextSunSet, nextSunRise, homestate, backendConnected)\n//  - MYGGSPRAY motion sensor → \"motion\" típus (isDetected)\n//  - Többi kontroller → \"controller\" típus (változatlan)\n//  Elhelyezés: minden DIRIGERA node után (kontrollerek + hub + szenzor)\n//  Trigger: inject 30mp\n// ════════════════════════════════════════════════════════════\n\nmsg.injected = true;\n\nconst devC = Array.isArray(msg.payload) ? msg.payload[0] : msg.payload;\nconst attrC = devC.attributes;\nconst devType = devC.deviceType || \"\";\n\n// ── DIRIGERA HUB (gateway) ───────────────────────────────────\nif (devType === \"gateway\") {\n    msg.payload = [{\n        type:             \"gateway\",\n        label:            attrC.customName,\n        reachable:        devC.isReachable,\n        firmwareVersion:  attrC.firmwareVersion,\n        backendConnected: attrC.backendConnected,\n        homestate:        attrC.homestate,           // \"home\" | \"away\"\n        nextSunSet:       attrC.nextSunSet,           // ISO string\n        nextSunRise:      attrC.nextSunRise,          // ISO string\n        timezone:         attrC.timezone\n    }];\n\n    if (!devC.isReachable) {\n        node.status({ fill: \"red\", shape: \"ring\", text: \"🔴 DIRIGERA HUB OFFLINE!\" });\n    } else {\n        const hs = attrC.homestate === \"home\" ? \"🏠\" : \"🌍\";\n        node.status({ fill: \"green\", shape: \"dot\", text: `🟢 HUB online  ${hs} ${attrC.homestate}` });\n    }\n    return msg;\n}\n\n// ── Motion sensor (occupancySensor) ─────────────────────────\nif (devType === \"occupancySensor\") {\n    msg.payload = [{\n        type:       \"motion\",\n        label:      attrC.customName,\n        room:       devC.room?.name || null,\n        reachable:  devC.isReachable,\n        detected:   attrC.isDetected,               // true | false\n        battery:    attrC.batteryPercentage ?? null\n    }];\n\n    const item = msg.payload[0];\n    if (!item.reachable) {\n        node.status({ fill: \"red\", shape: \"ring\", text: `⚠️ Offline: ${item.label}` });\n    } else {\n        const icon = item.detected ? \"🟡 Mozgás!\" : \"🟢 Csend\";\n        node.status({ fill: item.detected ? \"yellow\" : \"green\", shape: \"dot\",\n                      text: `${icon}  🔋${item.battery ?? \"?\"}%` });\n    }\n    return msg;\n}\n\n// ── Egyéb kontrollerek (genericSwitch, lightController) ─────\nmsg.payload = [{\n    type:      \"controller\",\n    label:     attrC.customName,\n    battery:   attrC.batteryPercentage ?? null,\n    reachable: devC.isReachable\n}];\n\nconst item = msg.payload[0];\n\nif (!item.reachable) {\n    node.status({ fill: \"red\", shape: \"ring\", text: `⚠️ Offline: ${item.label}` });\n} else {\n    const bat  = item.battery;\n    const fill = bat == null ? \"grey\" : bat <= 15 ? \"red\" : bat <= 30 ? \"yellow\" : \"green\";\n    const icon = bat == null ? \"❓\" : bat <= 15 ? \"🪫\" : bat <= 30 ? \"⚠️\" : \"🔋\";\n    node.status({ fill, shape: \"dot\", text: `${icon} ${item.label}: ${bat ?? \"?\"}%` });\n}\n\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 780,
+    "y": 2820,
+    "wires": [
+      [
+        "bc80cffaf7b15ed3"
+      ]
+    ]
+  },
+  {
+    "id": "bc80cffaf7b15ed3",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "IKEA controllers",
+    "mode": "link",
+    "links": [
+      "43cf4036fdeb8420"
+    ],
+    "x": 965,
+    "y": 2820,
+    "wires": []
+  },
+  {
+    "id": "2e18f381fa4417ee",
+    "type": "uibuilder",
+    "z": "901bdeda80413cd9",
+    "name": "NS desktop",
+    "topic": "",
+    "url": "nsdesktop2",
+    "okToGo": true,
+    "fwdInMessages": false,
+    "allowScripts": false,
+    "allowStyles": false,
+    "copyIndex": true,
+    "templateFolder": "blank",
+    "extTemplate": "",
+    "showfolder": false,
+    "reload": false,
+    "sourceFolder": "src",
+    "deployedVersion": "7.5.0",
+    "showMsgUib": false,
+    "title": "",
+    "descr": "",
+    "editurl": "vscode://vscode-remote/ssh-remote+192.0.2.10/data/uibuilder/nsdesktop2/?windowId=_blank",
+    "x": 1580,
+    "y": 720,
+    "wires": [
+      [
+        "5e591a6065cbab1c",
+        "f7aee41a9af0aa5c"
+      ],
+      [
+        "5e591a6065cbab1c",
+        "f7aee41a9af0aa5c"
+      ]
+    ]
+  },
+  {
+    "id": "9522704ff011c12d",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "Sonoff normalize debug",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1230,
+    "y": 940,
+    "wires": []
+  },
+  {
+    "id": "a7d0d57993b407e8",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize Airvent Sonoff Switches",
+    "func": "// ════════════════════════════════════════════════════════════\n//  == FUNCTION NODE: normalize_airvent_switches ==\n//  Elhelyezés: Fürdőszoba szellőzés get-devices után\n//  Trigger: inject 30 másodpercenként\n// ════════════════════════════════════════════════════════════\n\nmsg.injected = true;\n\nconst TOGGLE_MAP = {\n    \"00000000-0000-4000-8000-000000000027\": { room: \"furdo\", ch: { \"1\":\"I\", \"2\":\"II\", \"3\":\"Légcsere\", \"4\":\"On/Off\" } }\n};\n\nconst devices = Array.isArray(msg.payload) ? msg.payload : [msg.payload];\nconst outS = [];\n\ndevices.forEach(dev => {\n    if (!dev || !dev.serial_number) return;\n    const map = TOGGLE_MAP[dev.serial_number];\n    if (!map) return;\n\n    if (map.ch && dev.state.toggle) {\n        Object.entries(dev.state.toggle).forEach(([ch, val]) => {\n            const label = map.ch[ch];\n            if (!label) return;\n            outS.push({ type:\"switch\", room:map.room, label:label, state: val.toggleState === \"on\" });\n        });\n    } else if (dev.state.power) {\n        outS.push({ type:\"switch\", room:map.room, label:dev.name, state: dev.state.power.powerState === \"on\" });\n    }\n});\n\n// ── Node status ──────────────────────────────────────────────\nconst total  = outS.length;\nconst onList = outS.filter(s => s.state === true);\nconst on     = onList.length;\n\nif (total === 0) {\n    node.status({ fill: \"red\", shape: \"ring\", text: \"⚠️ Nincs kapcsoló\" });\n} else if (on === 0) {\n    node.status({ fill: \"grey\", shape: \"dot\", text: `⏹️ Szellőzés ki` });\n} else {\n    const onLabels = onList.map(s => s.label).join(\", \");\n    node.status({ fill: \"blue\", shape: \"dot\", text: `💨 ${onLabels}` });\n}\n\nmsg.payload = outS;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 840,
+    "y": 900,
+    "wires": [
+      [
+        "a3ff86a7d0a62ee8",
+        "9522704ff011c12d"
+      ]
+    ]
+  },
+  {
+    "id": "c0eda499035c415a",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize Heating Sonoff Switches",
+    "func": "// ════════════════════════════════════════════════════════════\n//  == FUNCTION NODE: normalize_heating_switches ==\n//  Elhelyezés: join(2) után — Relay (F), Relay (L)\n//  Trigger: inject 30 másodpercenként\n// ════════════════════════════════════════════════════════════\n\nmsg.injected = true;\n\nconst TOGGLE_MAP = {\n    \"00000000-0000-4000-8000-000000000001\": { room: \"futes\", ch: { \"1\":\"Fürdőszoba fűtéskör\", \"2\":\"Nappali fűtéskör\", \"4\":\"Kazán\" } },\n    \"00000000-0000-4000-8000-000000000002\": { room: \"futes\", ch: { \"1\":\"Gyerekszoba fűtéskör\", \"2\":\"Hálószoba fűtéskör\", \"3\":\"WC fűtéskör\", \"4\":\"Szivattyú\" } }\n};\n\nconst devices = msg.payload.flat ? msg.payload.flat() : [].concat(...msg.payload);\nconst outS = [];\n\ndevices.forEach(dev => {\n    if (!dev || !dev.serial_number) return;\n    const map = TOGGLE_MAP[dev.serial_number];\n    if (!map) return;\n\n    if (map.ch && dev.state.toggle) {\n        Object.entries(dev.state.toggle).forEach(([ch, val]) => {\n            const label = map.ch[ch];\n            if (!label) return;\n            outS.push({ type:\"switch\", room:map.room, label:label, state: val.toggleState === \"on\" });\n        });\n    } else if (dev.state.power) {\n        outS.push({ type:\"switch\", room:map.room, label:dev.name, state: dev.state.power.powerState === \"on\" });\n    }\n});\n\n// ── Node status ──────────────────────────────────────────────\nconst total  = outS.length;\nconst onList = outS.filter(s => s.state === true);\nconst on     = onList.length;\n\nif (total === 0) {\n    node.status({ fill: \"red\", shape: \"ring\", text: \"⚠️ Nincs kapcsoló\" });\n} else if (on === 0) {\n    node.status({ fill: \"grey\", shape: \"dot\", text: `⏹️ Minden ki (${total})` });\n} else {\n    const byRoom = {};\n    onList.forEach(s => {\n        const room = s.room ?? \"ismeretlen\";\n        if (!byRoom[room]) byRoom[room] = 0;\n        byRoom[room]++;\n    });\n    const summary = Object.entries(byRoom)\n        .map(([room, count]) => `${room}(${count})`)\n        .join(\"  \");\n    node.status({ fill: \"green\", shape: \"dot\", text: `🔥 ${on}/${total}  ${summary}` });\n}\n\nmsg.payload = outS;\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 840,
+    "y": 820,
+    "wires": [
+      [
+        "a3ff86a7d0a62ee8",
+        "9522704ff011c12d"
+      ]
+    ]
+  },
+  {
+    "id": "d67ac1424287689a",
+    "type": "join",
+    "z": "901bdeda80413cd9",
+    "name": "",
+    "mode": "custom",
+    "build": "array",
+    "property": "payload",
+    "propertyType": "msg",
+    "key": "topic",
+    "joiner": "\\n",
+    "joinerType": "str",
+    "useparts": false,
+    "accumulate": false,
+    "timeout": "5",
+    "count": "2",
+    "reduceRight": false,
+    "reduceExp": "",
+    "reduceInit": "",
+    "reduceInitType": "",
+    "reduceFixup": "",
+    "x": 610,
+    "y": 820,
+    "wires": [
+      [
+        "c0eda499035c415a"
+      ]
+    ]
+  },
+  {
+    "id": "df35c54a2d82f55f",
+    "type": "join",
+    "z": "901bdeda80413cd9",
+    "name": "",
+    "mode": "custom",
+    "build": "array",
+    "property": "payload",
+    "propertyType": "msg",
+    "key": "topic",
+    "joiner": "\\n",
+    "joinerType": "str",
+    "useparts": false,
+    "accumulate": false,
+    "timeout": "5",
+    "count": "6",
+    "reduceRight": false,
+    "reduceExp": "",
+    "reduceInit": "",
+    "reduceInitType": "",
+    "reduceFixup": "",
+    "x": 650,
+    "y": 1060,
+    "wires": [
+      [
+        "47c6f2ae8fea32d1"
+      ]
+    ]
+  },
+  {
+    "id": "bdf850824cbf22df",
+    "type": "join",
+    "z": "901bdeda80413cd9",
+    "name": "",
+    "mode": "custom",
+    "build": "array",
+    "property": "payload",
+    "propertyType": "msg",
+    "key": "topic",
+    "joiner": "\\n",
+    "joinerType": "str",
+    "useparts": false,
+    "accumulate": false,
+    "timeout": "5",
+    "count": "18",
+    "reduceRight": false,
+    "reduceExp": "",
+    "reduceInit": "",
+    "reduceInitType": "",
+    "reduceFixup": "",
+    "x": 610,
+    "y": 2340,
+    "wires": [
+      [
+        "fa26a58dd20b1e60"
+      ]
+    ]
+  },
+  {
+    "id": "75a8b2a5d607d2b9",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "IKEA lights normalize debug",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 840,
+    "y": 2280,
+    "wires": []
+  },
+  {
+    "id": "dee7abbb1ca0b9c2",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "debug | APPLY floor",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "true",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1360,
+    "y": 500,
+    "wires": []
+  },
+  {
+    "id": "eccc2fe8eebea287",
+    "type": "link out",
+    "z": "901bdeda80413cd9",
+    "name": "Datacollector for SQL",
+    "mode": "link",
+    "links": [
+      "612191d488fb1cf3"
+    ],
+    "x": 1465,
+    "y": 800,
+    "wires": []
+  },
+  {
+    "id": "e6a830faeda22d22",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "debug 1",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "false",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 740,
+    "y": 2920,
+    "wires": []
+  },
+  {
+    "id": "8f085272cee4465d",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "debug 2",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "false",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1020,
+    "y": 1560,
+    "wires": []
+  },
+  {
+    "id": "63636c994b7dd33b",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "Debug melcloud connect",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1070,
+    "y": 720,
+    "wires": []
+  },
+  {
+    "id": "06e7da8c6ee1a34c",
+    "type": "melcloud-connect",
+    "z": "901bdeda80413cd9",
+    "server": "51ec57b15cfc7628",
+    "command": "getListDevices",
+    "x": 430,
+    "y": 680,
+    "wires": [
+      [
+        "bdd11dee38fc415e",
+        "71b7d8db673bbbf1"
+      ]
+    ]
+  },
+  {
+    "id": "a7055de50b67aa32",
+    "type": "melcloud-connect",
+    "z": "901bdeda80413cd9",
+    "server": "51ec57b15cfc7628",
+    "command": "getListDevices",
+    "x": 370,
+    "y": 220,
+    "wires": [
+      [
+        "09d26f191a11300d"
+      ]
+    ]
+  },
+  {
+    "id": "21bff3eafafbbf75",
+    "type": "melcloud-device",
+    "z": "901bdeda80413cd9",
+    "server": "51ec57b15cfc7628",
+    "buildingid": "REPLACE_WITH_MELCLOUD_BUILDING_ID",
+    "deviceid": "REPLACE_WITH_MELCLOUD_DEVICE_ID",
+    "mode": "heat",
+    "power": "on",
+    "settemperature": "27",
+    "setfanspeed": "3",
+    "x": 1900,
+    "y": 220,
+    "wires": [
+      [
+        "abe7f51c432734e9"
+      ]
+    ]
+  },
+  {
+    "id": "abe7f51c432734e9",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "debug 6",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "false",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 2180,
+    "y": 220,
+    "wires": []
+  },
+  {
+    "id": "bdd11dee38fc415e",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "debug 9",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "false",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1020,
+    "y": 760,
+    "wires": []
+  },
+  {
+    "id": "71b7d8db673bbbf1",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize A/C",
+    "func": "// == FUNCTION NODE: normalize_ac v2 ==\n// PATCH: getListDevices array[N]-et ad.\n// Device adatok: payload[0].Structure.Devices[0].Device\n\nmsg.injected = true;\n\nconst raw = Array.isArray(msg.payload) ? msg.payload[0] : msg.payload;\n\nlet r = null;\nif (raw && raw.Structure && Array.isArray(raw.Structure.Devices) && raw.Structure.Devices.length > 0) {\n    r = raw.Structure.Devices[0].Device || null;\n}\nif (!r && raw && raw.Power !== undefined) {\n    r = raw;\n}\n\nif (!r) {\n    node.status({ fill: \"red\", shape: \"ring\", text: \"⚠️ Nincs Device adat\" });\n    node.warn(\"normalize_ac: nem találtam Device objektumot\");\n    return null;\n}\n\nmsg.payload = {\n    type:     \"ac\",\n    power:    r.Power,\n    standby:  r.InStandbyMode,\n    offline:  r.Offline,\n    roomTemp: r.RoomTemperature,\n    setTemp:  r.SetTemperature,\n    mode:     r.OperationMode,\n    fanSpeed: r.SetFanSpeed,\n    lastSeen: r.LastCommunication\n};\n\nconst p = msg.payload;\nconst modeMap = { 1:\"🔥 Fűtés\", 2:\"❄️ Hűtés\", 3:\"🌀 Ventilátor\", 7:\"💨 Fan\", 8:\"💧 Szárítás\" };\nconst fanMap  = { 0:\"Auto\", 1:\"①\", 2:\"②\", 3:\"③\", 4:\"④\", 5:\"⑤\" };\nconst modeLabel = modeMap[p.mode] ?? `Mode ${p.mode}`;\nconst fanLabel  = fanMap[p.fanSpeed] ?? `F${p.fanSpeed}`;\n\nlet fill, text;\nif (p.offline) {\n    fill = \"red\"; text = \"⚠️ Offline\";\n} else if (!p.power || p.standby) {\n    fill = \"grey\"; text = p.standby ? \"💤 Standby\" : \"⏹️ Ki\";\n} else {\n    fill = p.mode === 1 ? \"red\" : p.mode === 2 ? \"blue\" : \"green\";\n    text = `${modeLabel}  🌡️${p.roomTemp}°→${p.setTemp}°  ${fanLabel}`;\n}\nnode.status({ fill, shape: \"dot\", text });\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 700,
+    "y": 680,
+    "wires": [
+      [
+        "13352991db8c58fa",
+        "63636c994b7dd33b"
+      ]
+    ]
+  },
+  {
+    "id": "09d26f191a11300d",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Normalize",
+    "func": "// == FUNCTION NODE: Normalize (HVAC Core) v2 ==\n// PATCH: getListDevices array[N]-et ad.\n// Device adatok: payload[0].Structure.Devices[0].Device\n\nfunction toBool(v) {\n    if (v === true || v === 1 || v === \"1\") return true;\n    if (v === false || v === 0 || v === \"0\" || v === null || v === undefined || v === \"\") return false;\n    if (typeof v === \"string\") {\n        const t = v.trim().toLowerCase();\n        if (t === \"true\" || t === \"on\" || t === \"yes\") return true;\n        if (t === \"false\" || t === \"off\" || t === \"no\") return false;\n    }\n    return !!v;\n}\n\nconst raw = Array.isArray(msg.payload) ? msg.payload[0] : msg.payload;\n\nlet p = null;\nif (raw && raw.Structure && Array.isArray(raw.Structure.Devices) && raw.Structure.Devices.length > 0) {\n    p = raw.Structure.Devices[0].Device || null;\n}\nif (!p && raw && raw.Power !== undefined) {\n    p = raw;\n}\n\nif (!p) {\n    node.status({ fill: \"red\", shape: \"ring\", text: \"⚠️ Nincs Device adat\" });\n    return null;\n}\n\nmsg.topic = \"ac\";\nmsg.payload = {\n    buildingId: \"1106921\",\n    deviceId:   \"147063004\",\n    power:    toBool(p.Power),\n    roomTemp: Number(p.RoomTemperature),\n    setTemp:  Number(p.SetTemperature),\n    fanSpeed: Number(p.SetFanSpeed),\n    modeCode: Number(p.OperationMode),\n    vaneH:    p.VaneHorizontal,\n    vaneV:    p.VaneVertical,\n    pending:  toBool(p.HasPendingCommand),\n    offline:  toBool(p.Offline),\n    lastCommunication: p.LastCommunication\n};\n\nnode.status({\n    fill: \"green\", shape: \"dot\",\n    text: `AC: ${p.Power ? \"BE\" : \"ki\"} | ${p.RoomTemperature}°→${p.SetTemperature}° | mode ${p.OperationMode}`\n});\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 600,
+    "y": 220,
+    "wires": [
+      [
+        "3fcd9d6449a2f026"
+      ]
+    ]
+  },
+  {
+    "id": "5e591a6065cbab1c",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "debug 11",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "false",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1900,
+    "y": 860,
+    "wires": []
+  },
+  {
+    "id": "85ef9551a236f180",
+    "type": "inject",
+    "z": "901bdeda80413cd9",
+    "name": "",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 1120,
+    "y": 1240,
+    "wires": [
+      [
+        "6747cc33164aea0b"
+      ]
+    ]
+  },
+  {
+    "id": "5c6d2e15396b409e",
+    "type": "debug",
+    "z": "901bdeda80413cd9",
+    "name": "debug 12",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "false",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1440,
+    "y": 1240,
+    "wires": []
+  },
+  {
+    "id": "6747cc33164aea0b",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "function 1",
+    "func": "msg.payload = {\n    nodeRedLocal: new Date().toString(),\n    nodeRedISO: new Date().toISOString(),\n    epoch: Date.now()\n};\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1280,
+    "y": 1240,
+    "wires": [
+      [
+        "5c6d2e15396b409e"
+      ]
+    ]
+  },
+  {
+    "id": "55c992d5883b0272",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Replay nscompact",
+    "func": "// UI-only snapshot replay. Never trigger HVAC or refresh stored timestamps.\nconst request = msg.topic === 'ui/state/request' ||\n    ['client connect', 'ready for content'].includes(msg.uibuilderCtrl) ||\n    msg.cacheControl === 'REPLAY';\nif (!request || typeof msg._socketId !== 'string' || !msg._socketId) return null;\nconst s = global.get('dash_state');\nif (!s) return { topic: 'ui/state/wait', _socketId: msg._socketId, payload: null };\nconst payload = {};\nfor (const key of ['weather','ac','sensors','lights','gateway','motion','_ts','_updated']) {\n    if (s[key] !== undefined) payload[key] = s[key];\n}\nreturn { topic: 'ui/state', _socketId: msg._socketId,\n    payload: JSON.parse(JSON.stringify(payload)) };\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1870,
+    "y": 660,
+    "wires": [
+      [
+        "3e6ae44921b6ac19"
+      ]
+    ]
+  },
+  {
+    "id": "f7aee41a9af0aa5c",
+    "type": "function",
+    "z": "901bdeda80413cd9",
+    "name": "Replay nsdesktop",
+    "func": "// UI-only snapshot replay. Never trigger HVAC or refresh stored timestamps.\nconst request = msg.topic === 'ui/state/request' ||\n    ['client connect', 'ready for content'].includes(msg.uibuilderCtrl) ||\n    msg.cacheControl === 'REPLAY';\nif (!request || typeof msg._socketId !== 'string' || !msg._socketId) return null;\nconst s = global.get('dash_state');\nif (!s) return { topic: 'ui/state/wait', _socketId: msg._socketId, payload: null };\nconst payload = {};\nfor (const key of ['weather','ac','sensors','lights','gateway','motion','_ts','_updated']) {\n    if (s[key] !== undefined) payload[key] = s[key];\n}\nreturn { topic: 'ui/state', _socketId: msg._socketId,\n    payload: JSON.parse(JSON.stringify(payload)) };",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1870,
+    "y": 720,
+    "wires": [
+      [
+        "2e18f381fa4417ee"
+      ]
+    ]
+  },
+  {
+    "id": "5c785583416684be",
+    "type": "melcloud-device",
+    "z": "901bdeda80413cd9",
+    "server": "51ec57b15cfc7628",
+    "buildingid": "REPLACE_WITH_MELCLOUD_BUILDING_ID",
+    "deviceid": "REPLACE_WITH_MELCLOUD_DEVICE_ID",
+    "mode": "cooling",
+    "power": "on",
+    "settemperature": "25",
+    "setfanspeed": "3",
+    "x": 1900,
+    "y": 280,
+    "wires": [
+      [
+        "abe7f51c432734e9"
+      ]
+    ]
+  },
+  {
+    "id": "516031aa10c84f99",
+    "type": "api-server",
+    "name": "iHost (configure me)",
+    "ip": "",
+    "ipaddr": "192.0.2.10",
+    "token": "REPLACE_WITH_IHOST_TOKEN"
+  },
+  {
+    "id": "3e71ef83f1661cb7",
+    "type": "dirigera-config",
+    "name": "DIRIGERA (configure me)"
+  },
+  {
+    "id": "51ec57b15cfc7628",
+    "type": "melcloud-credential",
+    "email": "melcloud-user@example.com",
+    "password": "REPLACE_WITH_MELCLOUD_PASSWORD"
+  },
+  {
+    "id": "7bd8fc16e7e84483",
+    "type": "global-config",
+    "env": [],
+    "modules": {
+      "node-red-contrib-ihost": "1.3.0",
+      "node-red-contrib-dirigera": "1.3.0",
+      "node-red-contrib-uibuilder": "7.7.4",
+      "node-red-contrib-melcloud": "1.6.0"
+    }
+  }
+]

@@ -1,0 +1,13 @@
+# Never publish local Node-RED credentials or runtime state.
+flows_cred.json
+flows_cred.json.backup
+.env
+*.env
+*.sql.gz
+*.sql.zip
+*.pem
+*.key
+service-account*.json
+node_modules/
+.DS_Store
+Thumbs.db

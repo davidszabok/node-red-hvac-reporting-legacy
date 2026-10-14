@@ -1,0 +1,647 @@
+[
+  {
+    "id": "9bf43a9c31324288",
+    "type": "tab",
+    "label": "Datacollecting & Summary mailer",
+    "disabled": false,
+    "info": "",
+    "env": []
+  },
+  {
+    "id": "612191d488fb1cf3",
+    "type": "link in",
+    "z": "9bf43a9c31324288",
+    "name": "ML&Dashboard SQL",
+    "links": [
+      "eccc2fe8eebea287"
+    ],
+    "x": 255,
+    "y": 100,
+    "wires": [
+      [
+        "f8d0c70bdca2bb93",
+        "326a04464f3ecf4a",
+        "a6174db3be97f769"
+      ]
+    ]
+  },
+  {
+    "id": "f8d0c70bdca2bb93",
+    "type": "debug",
+    "z": "9bf43a9c31324288",
+    "name": "Unifier debug",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 470,
+    "y": 40,
+    "wires": []
+  },
+  {
+    "id": "326a04464f3ecf4a",
+    "type": "function",
+    "z": "9bf43a9c31324288",
+    "name": "SNAPSHOT WRITER  v1.2",
+    "func": "// ═══════════════════════════════════════════════════════════════\n//  SNAPSHOT WRITER  v1.2\n//  + Rate limiter: max 1 írás / 5 perc\n//\n//  Node-RED beállítás:\n//    - Outputs: 5\n//    - Output 1 → mysql node (snap_weather)\n//    - Output 2 → mysql node (snap_sensors_th)\n//    - Output 3 → mysql node (snap_ac)\n//    - Output 4 → mysql node (snap_heating)\n//    - Output 5 → mysql node (snap_shutters)\n// ═══════════════════════════════════════════════════════════════\n\n// ── RATE LIMITER: max 1 írás / 5 perc ────────────────────────\nconst INTERVAL_MS = 5 * 60 * 1000;\nconst lastWrite = context.get('lastWrite') || 0;\nconst now = Date.now();\n\nif (now - lastWrite < INTERVAL_MS) return null;\ncontext.set('lastWrite', now);\n\n// ─────────────────────────────────────────────────────────────\n\nconst p = msg.payload;\nif (!p) return null;\n\nconst tsMs  = p._ts || now;\nconst tsStr = new Date(tsMs).toISOString().slice(0, 19).replace('T', ' ');\n\nfunction esc(v) {\n    if (v === null || v === undefined) return 'NULL';\n    if (typeof v === 'boolean') return v ? 1 : 0;\n    if (typeof v === 'number' && Number.isFinite(v)) return v;\n    return `'${String(v).replace(/\\\\/g, '\\\\\\\\').replace(/'/g, \"\\\\'\")}'`;\n}\n\n// ── OUTPUT 1: snap_weather ────────────────────────────────────\nlet msgWeather = null;\nconst w = p.weather;\nif (w) {\n    const sr = w.sunrise ? String(w.sunrise).slice(0, 5) : null;\n    const ss = w.sunset  ? String(w.sunset).slice(0, 5)  : null;\n    msgWeather = {\n        topic: `INSERT INTO snap_weather\n(ts, temp, humidity, wind, gust, wx_code, temp_min, temp_max, sunrise, sunset)\nVALUES (\n    '${tsStr}',\n    ${esc(w.temp     ?? null)},\n    ${esc(w.humidity ?? null)},\n    ${esc(w.wind     ?? null)},\n    ${esc(w.gust     ?? null)},\n    ${esc(w.code     ?? null)},\n    ${esc(w.tempMin  ?? null)},\n    ${esc(w.tempMax  ?? null)},\n    ${sr ? `'${sr}'` : 'NULL'},\n    ${ss ? `'${ss}'` : 'NULL'}\n);`\n    };\n}\n\n// ── OUTPUT 2: snap_sensors_th ─────────────────────────────────\nlet msgSensors = null;\nconst th = p.sensors?.th || {};\nconst thRooms = Object.keys(th);\nif (thRooms.length > 0) {\n    const values = thRooms.map(room => {\n        const s = th[room] || {};\n        return `('${tsStr}', ${esc(room)}, ${esc(s.temp ?? null)}, ${esc(s.hum ?? null)}, ${esc(s.battery ?? null)}, ${s.online !== false ? 1 : 0})`;\n    });\n    msgSensors = {\n        topic: `INSERT INTO snap_sensors_th\n(ts, room, temp, humidity, battery, online)\nVALUES ${values.join(',\\n')};`\n    };\n}\n\n// ── OUTPUT 3: snap_ac ─────────────────────────────────────────\nlet msgAc = null;\nconst ac = p.ac;\nif (ac) {\n    msgAc = {\n        topic: `INSERT INTO snap_ac\n(ts, power, room_temp, set_temp, mode_code, offline)\nVALUES (\n    '${tsStr}',\n    ${ac.power   ? 1 : 0},\n    ${esc(ac.roomTemp ?? null)},\n    ${esc(ac.setTemp  ?? null)},\n    ${esc(ac.modeCode ?? ac.mode ?? null)},\n    ${ac.offline ? 1 : 0}\n);`\n    };\n}\n\n// ── OUTPUT 4: snap_heating ────────────────────────────────────\nlet msgHeating = null;\nconst ft = p.sensors?.switches?.futes || {};\nconst heatingValues = Object.entries(ft).map(([name, val]) => {\n    const state = val === true ? 1 : 0;\n    return `('${tsStr}', ${esc(name)}, ${state})`;\n});\nif (heatingValues.length > 0) {\n    msgHeating = {\n        topic: `INSERT INTO snap_heating\n(ts, relay_name, state)\nVALUES ${heatingValues.join(',\\n')};`\n    };\n}\n\n// ── OUTPUT 5: snap_shutters ───────────────────────────────────\nlet msgShutters = null;\nconst shutters = p.sensors?.shutters || {};\nconst shutterValues = [];\nfor (const room of Object.keys(shutters)) {\n    const labels = shutters[room];\n    for (const label of Object.keys(labels)) {\n        const s = labels[label];\n        shutterValues.push(\n            `('${tsStr}', ${esc(room)}, ${esc(label)}, ${esc(s.pct ?? null)}, ${esc(s.motor ?? null)})`\n        );\n    }\n}\nif (shutterValues.length > 0) {\n    msgShutters = {\n        topic: `INSERT INTO snap_shutters\n(ts, room, label, position_pct, motor)\nVALUES ${shutterValues.join(',\\n')};`\n    };\n}\n\nreturn [msgWeather, msgSensors, msgAc, msgHeating, msgShutters];",
+    "outputs": 5,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 460,
+    "y": 100,
+    "wires": [
+      [
+        "237979a147b5461d"
+      ],
+      [
+        "6fe984444758269f"
+      ],
+      [
+        "70f2bbbced02be41"
+      ],
+      [
+        "f2c51cd5026d276d"
+      ],
+      [
+        "351b16678f968e1a"
+      ]
+    ]
+  },
+  {
+    "id": "48422c23559072e5",
+    "type": "e-mail",
+    "z": "9bf43a9c31324288",
+    "server": "mail.nethely.hu",
+    "port": "465",
+    "authtype": "BASIC",
+    "saslformat": false,
+    "token": "sender@example.com",
+    "secure": true,
+    "tls": true,
+    "name": "recipient1@example.com, recipient2@example.com",
+    "dname": "Daily Summary Mailer",
+    "x": 1860,
+    "y": 500,
+    "wires": []
+  },
+  {
+    "id": "a5c6c31fd2bce3b1",
+    "type": "inject",
+    "z": "9bf43a9c31324288",
+    "name": "Daily Smart Summary @08:05 (Europe/Budapest)",
+    "props": [
+      {
+        "p": "payload"
+      },
+      {
+        "p": "topic",
+        "vt": "str"
+      }
+    ],
+    "repeat": "",
+    "crontab": "05 06 * * *",
+    "once": false,
+    "onceDelay": 0.1,
+    "topic": "trigger_smart_summary",
+    "payload": "",
+    "payloadType": "date",
+    "x": 290,
+    "y": 440,
+    "wires": [
+      [
+        "7713b48041827576",
+        "d3f6d36941a5cf63",
+        "47235e8c825e26c2",
+        "53967ed68a6bdfcc",
+        "9abc7fef53be194a",
+        "854420542fb03af0"
+      ]
+    ]
+  },
+  {
+    "id": "7713b48041827576",
+    "type": "function",
+    "z": "9bf43a9c31324288",
+    "name": " BUILD SQL (last 24h)  —  v2.2",
+    "func": "// ═══════════════════════════════════════════════════════════════\n//  BUILD SQL (last 24h)  —  v2.2\n//  + room_name mapping: DB kulcs → HTML email által várt név\n// ═══════════════════════════════════════════════════════════════\n\nmsg.topic = `\nSELECT\n  s.ts                                          AS timestamp,\n\n  CASE s.room\n    WHEN 'nappali' THEN 'Nappali T&H'\n    WHEN 'halo'    THEN 'Hálószoba T&H'\n    WHEN 'gyerek'  THEN 'Gyerekszoba T&H'\n    WHEN 'furdo'   THEN 'Fürdőszoba T&H'\n    WHEN 'wc'      THEN 'WC T&H'\n    ELSE s.room\n  END                                           AS room_name,\n\n  s.temp                                        AS indoor_temp,\n  s.humidity                                    AS indoor_hum,\n\n  COALESCE(h_zone.state, 0)                     AS relay_state,\n  h_zone.relay_name                             AS relay_name,\n\n  w.temp                                        AS outdoor_temp,\n  w.humidity                                    AS outdoor_hum,\n\n  COALESCE(h_boiler.state, 0)                   AS boiler_state\n\nFROM snap_sensors_th s\n\n-- Szobánkénti fűtéskör illesztése (5 perc tolerancia)\nLEFT JOIN snap_heating h_zone\n  ON h_zone.relay_name = CASE s.room\n       WHEN 'nappali' THEN 'Nappali fűtéskör'\n       WHEN 'halo'    THEN 'Hálószoba fűtéskör'\n       WHEN 'gyerek'  THEN 'Gyerekszoba fűtéskör'\n       WHEN 'furdo'   THEN 'Fürdőszoba fűtéskör'\n       WHEN 'wc'      THEN 'WC fűtéskör'\n       ELSE NULL\n     END\n  AND ABS(TIMESTAMPDIFF(SECOND, h_zone.ts, s.ts)) = (\n    SELECT MIN(ABS(TIMESTAMPDIFF(SECOND, h2.ts, s.ts)))\n    FROM snap_heating h2\n    WHERE h2.relay_name = CASE s.room\n            WHEN 'nappali' THEN 'Nappali fűtéskör'\n            WHEN 'halo'    THEN 'Hálószoba fűtéskör'\n            WHEN 'gyerek'  THEN 'Gyerekszoba fűtéskör'\n            WHEN 'furdo'   THEN 'Fürdőszoba fűtéskör'\n            WHEN 'wc'      THEN 'WC fűtéskör'\n            ELSE NULL\n          END\n      AND ABS(TIMESTAMPDIFF(SECOND, h2.ts, s.ts)) <= 300\n      AND h2.ts >= NOW() - INTERVAL 1 DAY\n  )\n  AND ABS(TIMESTAMPDIFF(SECOND, h_zone.ts, s.ts)) <= 300\n\n-- Kazán állapot illesztése (5 perc tolerancia)\nLEFT JOIN snap_heating h_boiler\n  ON h_boiler.relay_name = 'Kazán'\n  AND ABS(TIMESTAMPDIFF(SECOND, h_boiler.ts, s.ts)) = (\n    SELECT MIN(ABS(TIMESTAMPDIFF(SECOND, hb2.ts, s.ts)))\n    FROM snap_heating hb2\n    WHERE hb2.relay_name = 'Kazán'\n      AND ABS(TIMESTAMPDIFF(SECOND, hb2.ts, s.ts)) <= 300\n      AND hb2.ts >= NOW() - INTERVAL 1 DAY\n  )\n  AND ABS(TIMESTAMPDIFF(SECOND, h_boiler.ts, s.ts)) <= 300\n\n-- Időjárás illesztése (15 perc tolerancia)\nLEFT JOIN snap_weather w\n  ON ABS(TIMESTAMPDIFF(SECOND, w.ts, s.ts)) = (\n    SELECT MIN(ABS(TIMESTAMPDIFF(SECOND, w2.ts, s.ts)))\n    FROM snap_weather w2\n    WHERE ABS(TIMESTAMPDIFF(SECOND, w2.ts, s.ts)) <= 900\n      AND w2.ts >= NOW() - INTERVAL 1 DAY\n  )\n  AND ABS(TIMESTAMPDIFF(SECOND, w.ts, s.ts)) <= 900\n\nWHERE s.ts >= NOW() - INTERVAL 1 DAY\nORDER BY s.ts DESC;\n`;\n\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 640,
+    "y": 440,
+    "wires": [
+      [
+        "f11d7c70329e6bb0"
+      ]
+    ]
+  },
+  {
+    "id": "f11d7c70329e6bb0",
+    "type": "mysql",
+    "z": "9bf43a9c31324288",
+    "mydb": "42cf2f513391fa3a",
+    "name": "SQL (last 24h)",
+    "x": 900,
+    "y": 440,
+    "wires": [
+      [
+        "1d2109e6ada8e5ca"
+      ]
+    ]
+  },
+  {
+    "id": "1d2109e6ada8e5ca",
+    "type": "change",
+    "z": "9bf43a9c31324288",
+    "name": "Tag as SQL",
+    "rules": [
+      {
+        "t": "set",
+        "p": "topic",
+        "pt": "msg",
+        "to": "sql",
+        "tot": "str"
+      }
+    ],
+    "x": 1190,
+    "y": 440,
+    "wires": [
+      [
+        "793048841065f486",
+        "566f6611d79584d4"
+      ]
+    ]
+  },
+  {
+    "id": "d3f6d36941a5cf63",
+    "type": "http request",
+    "z": "9bf43a9c31324288",
+    "name": "Open-Meteo Forecast (sample location)",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "https://api.open-meteo.com/v1/forecast?latitude=47.4979&longitude=19.0402&hourly=temperature_2m,wind_speed_10m,wind_direction_10m,precipitation,precipitation_probability,rain&daily=temperature_2m_min,temperature_2m_max,sunrise,sunset,precipitation_sum,precipitation_probability_max&forecast_days=1&timezone=Europe/Budapest",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 660,
+    "y": 480,
+    "wires": [
+      [
+        "9783f2a599d1abbb"
+      ]
+    ]
+  },
+  {
+    "id": "9783f2a599d1abbb",
+    "type": "function",
+    "z": "9bf43a9c31324288",
+    "name": "Analyze Forecast",
+    "func": "let d = msg.payload || {};\nlet daily = d.daily || {};\nlet hourly = d.hourly || {};\n\nlet minT = daily.temperature_2m_min ? daily.temperature_2m_min[0] : null;\nlet maxT = daily.temperature_2m_max ? daily.temperature_2m_max[0] : null;\n\nif (minT == null && hourly.temperature_2m) {\n  minT = Math.min(...hourly.temperature_2m);\n  maxT = Math.max(...hourly.temperature_2m);\n}\n\nlet trend = '-';\nif (hourly.temperature_2m?.length > 5) {\n  let s = hourly.temperature_2m[0];\n  let e = hourly.temperature_2m[hourly.temperature_2m.length - 1];\n  trend = e > s ? '🌞 Felmelegedés várható' : '❄️ Lehűlés várható';\n}\n\nlet avgWind = hourly.wind_speed_10m?.length\n  ? (hourly.wind_speed_10m.reduce((a, b) => a + b, 0) / hourly.wind_speed_10m.length).toFixed(1)\n  : '-';\n\nlet sunrise = daily.sunrise ? daily.sunrise[0] : '-';\nlet sunset  = daily.sunset  ? daily.sunset[0]  : '-';\n\nconst f1 = (x) => (x == null || Number.isNaN(Number(x))) ? '-' : Number(x).toFixed(1);\n\n// --- CSAPADÉK (daily preferált) ---\nconst precipSum = (daily.precipitation_sum && daily.precipitation_sum.length)\n  ? Number(daily.precipitation_sum[0])\n  : (hourly.precipitation?.length ? hourly.precipitation.reduce((a,b)=>a+b,0) : null);\n\nconst precipProbMax = (daily.precipitation_probability_max && daily.precipitation_probability_max.length)\n  ? Number(daily.precipitation_probability_max[0])\n  : (hourly.precipitation_probability?.length ? Math.max(...hourly.precipitation_probability) : null);\n\n// formázott csapadék szöveg (amit közvetlenül ki tudsz írni)\nlet precipText = '-';\nconst parts = [];\nif (Number.isFinite(precipSum)) parts.push(`${precipSum.toFixed(1)} mm`);\nif (Number.isFinite(precipProbMax)) parts.push(`${precipProbMax.toFixed(0)}% esély`);\nif (parts.length) precipText = parts.join(' • ');\n\nmsg.payload = {\n  minTemp: f1(minT),\n  maxTemp: f1(maxT),\n  trend,\n  avgWind,\n  sunrise,\n  sunset,\n\n  // új mezők:\n  precipSum: Number.isFinite(precipSum) ? precipSum : null,\n  precipProbMax: Number.isFinite(precipProbMax) ? precipProbMax : null,\n  precipText\n};\n\n\n\nmsg.topic = 'forecast';\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1010,
+    "y": 480,
+    "wires": [
+      [
+        "793048841065f486"
+      ]
+    ]
+  },
+  {
+    "id": "47235e8c825e26c2",
+    "type": "http request",
+    "z": "9bf43a9c31324288",
+    "name": "EUR→HUF (ExchangeRate.host)",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "https://open.er-api.com/v6/latest/EUR",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 660,
+    "y": 520,
+    "wires": [
+      [
+        "beb15a9f2eddc0bc"
+      ]
+    ]
+  },
+  {
+    "id": "beb15a9f2eddc0bc",
+    "type": "function",
+    "z": "9bf43a9c31324288",
+    "name": "Parse FX",
+    "func": "let r = msg.payload?.rates?.HUF;\nconst TZ='Europe/Budapest';\nconst date = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(new Date()); // YYYY-MM-DD\nmsg.payload = r ? { rate: Number(r).toFixed(2), date } : { rate:\"-\", date:\"-\" };\nmsg.topic = \"fx\";\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1040,
+    "y": 520,
+    "wires": [
+      [
+        "793048841065f486"
+      ]
+    ]
+  },
+  {
+    "id": "793048841065f486",
+    "type": "join",
+    "z": "9bf43a9c31324288",
+    "name": "Merge SQL + Forecast + FX",
+    "mode": "custom",
+    "build": "object",
+    "property": "payload",
+    "propertyType": "msg",
+    "key": "topic",
+    "joiner": "\\n",
+    "joinerType": "str",
+    "useparts": false,
+    "accumulate": false,
+    "timeout": "",
+    "count": "6",
+    "reduceRight": false,
+    "reduceExp": "",
+    "reduceInit": "",
+    "reduceInitType": "",
+    "reduceFixup": "",
+    "x": 1370,
+    "y": 540,
+    "wires": [
+      [
+        "222fa3ee881d6abc"
+      ]
+    ]
+  },
+  {
+    "id": "222fa3ee881d6abc",
+    "type": "function",
+    "z": "9bf43a9c31324288",
+    "name": "Build HTML Email",
+    "func": "const TZ = 'Europe/Budapest';\n\n// ---- Beállítások ----\nconst SAMPLE_MIN = 5;                         // nálad 5 perc a mintavételezés\nconst SAMPLE_MS  = SAMPLE_MIN * 60 * 1000;\nconst MAX_GAP_MS = 2 * SAMPLE_MS;             // ha ennél nagyobb a rés, akkor ne számoljuk bele teljesen\n\nconst RELAY_ON_VALUE  = 1;                    // relay_state: 1 = ON\nconst BOILER_ON_VALUE = 1;                    // boiler_state: 1 = ON\n\nconst now = new Date();\nconst isoDate = new Intl.DateTimeFormat('en-CA', { timeZone: TZ }).format(now); // YYYY-MM-DD\nconst huDateLong = new Intl.DateTimeFormat('hu-HU', {\n  timeZone: TZ, weekday: 'long', year: 'numeric', month: 'long', day: '2-digit'\n}).format(now);\n\n// ---- Inputok ----\nconst sql     = msg.payload.sql || [];\nconst f       = msg.payload.forecast || {};\nconst fx      = msg.payload.fx || {};\nconst lunch   = msg.payload.lunch || {};\nconst nameday = msg.payload.nameday || {};\nconst kuka = msg.payload.kuka || msg.payload.kukaReminder || '';\n\n\n// ---- Helpers ----\nconst toMs = (ts) => {\n  if (ts == null) return null;\n\n  // number: epoch sec vagy ms\n  if (typeof ts === 'number' && Number.isFinite(ts)) {\n    return ts < 1e12 ? ts * 1000 : ts;\n  }\n\n  const s = String(ts).trim();\n\n  // numeric string: epoch sec vagy ms\n  if (/^\\d+$/.test(s)) {\n    const n = Number(s);\n    if (!Number.isFinite(n)) return null;\n    return n < 1e12 ? n * 1000 : n;\n  }\n\n  const t = Date.parse(s);\n  return Number.isFinite(t) ? t : null;\n};\n\nconst ICON = {\n  sun: '☀️',\n  weather: '🌦',\n  rain: '☔',\n  wind: '🌬️',     // 💨 helyett ez “szelesebb”\n  sunrise: '🌅',\n  sunset: '🌇',\n  lunch: '🍽️',\n  eur: '💶',\n  tip: '💡'\n};\n\nconst fnum = (n, d = 1) =>\n  (n == null || Number.isNaN(Number(n))) ? '-' : Number(n).toFixed(d);\n\nconst avg = (a) => a.length ? (a.reduce((x, y) => x + y, 0) / a.length) : null;\nconst min = (a) => a.length ? Math.min(...a) : null;\nconst max = (a) => a.length ? Math.max(...a) : null;\n\nconst fmtHHMM = (ms) => {\n  if (!ms || ms <= 0) return '00:00';\n  const totalMin = Math.floor(ms / 60000);\n  const hh = String(Math.floor(totalMin / 60)).padStart(2, '0');\n  const mm = String(totalMin % 60).padStart(2, '0');\n  return `${hh}:${mm}`;\n};\n\nconst timeHHMM = (s) => {\n  if (!s) return '-';\n  // open-meteo: \"YYYY-MM-DDTHH:MM\"\n  const m = String(s).match(/T(\\d{2}:\\d{2})/);\n  if (m) return m[1];\n  try {\n    return new Date(s).toLocaleTimeString('hu-HU', {\n      timeZone: TZ, hour: '2-digit', minute: '2-digit'\n    });\n  } catch {\n    return '-';\n  }\n};\n\n// ---- ON-idő számolás (rés-kezeléssel) ----\nfunction calcOnMsClamped(points, key, onValue) {\n  // points: [{timestamp, relay_state/boiler_state}]\n  if (!Array.isArray(points) || points.length < 2) return 0;\n\n  // dedup timestamp szerint (ha lenne duplikáció)\n  const m = new Map(); // ms -> state\n  for (const p of points) {\n    const ms = toMs(p.timestamp);\n    if (ms == null) continue;\n    // ha több jön ugyanarra a ms-re, az utolsót vegyük\n    m.set(ms, Number(p[key]));\n  }\n\n  const arr = Array.from(m.entries())\n    .sort((a, b) => a[0] - b[0])\n    .map(([ms, state]) => ({ ms, state }));\n\n  if (arr.length < 2) return 0;\n\n  let onMs = 0;\n  for (let i = 0; i < arr.length - 1; i++) {\n    const t0 = arr[i].ms;\n    const t1 = arr[i + 1].ms;\n    const rawDt = Math.max(0, t1 - t0);\n\n    // ha túl nagy a kimaradás, ne számoljuk bele az egész rést (különben elszáll 9+ órára)\n    const dt = rawDt > MAX_GAP_MS ? SAMPLE_MS : rawDt;\n\n    const isOn = (Number(arr[i].state) === onValue);\n    if (isOn) onMs += dt;\n  }\n\n  return onMs;\n}\n\n// ---- Kültéri / kazán sorozat dedup timestamp szerint ----\n// Mivel minden szobához van rekord ugyanazzal a timestamp-pel, itt timestamp alapján dedupolunk.\nconst byTs = new Map(); // ms -> { outdoor_temp, outdoor_hum, boiler_state }\nfor (const r of sql) {\n  const ms = toMs(r.timestamp);\n  if (ms == null) continue;\n  if (!byTs.has(ms)) {\n    byTs.set(ms, {\n      timestamp: r.timestamp,\n      outdoor_temp: r.outdoor_temp,\n      outdoor_hum: r.outdoor_hum,\n      boiler_state: r.boiler_state\n    });\n  }\n}\nconst uniqTs = Array.from(byTs.values());\n\nconst outTemps = uniqTs.filter(x => x.outdoor_temp != null).map(x => Number(x.outdoor_temp));\nconst outHums  = uniqTs.filter(x => x.outdoor_hum  != null).map(x => Number(x.outdoor_hum));\n\nconst outAvgT = fnum(avg(outTemps), 1);\nconst outAvgH = fnum(avg(outHums), 0);\n\nconst boilerOnMs   = calcOnMsClamped(uniqTs, 'boiler_state', BOILER_ON_VALUE);\nconst boilerOnHHMM = fmtHHMM(boilerOnMs);\n\n// ---- Szobánként aggregálás + ON idő ----\nconst rooms = {}; // room -> { t:[], h:[], series:[{timestamp, relay_state}] }\n\nfor (const r of sql) {\n  const room = (r.room_name || r.relay_name || 'Ismeretlen').toString();\n  if (!rooms[room]) rooms[room] = { t: [], h: [], series: [] };\n\n  if (r.indoor_temp != null) rooms[room].t.push(Number(r.indoor_temp));\n  if (r.indoor_hum  != null) rooms[room].h.push(Number(r.indoor_hum));\n\n  rooms[room].series.push({ timestamp: r.timestamp, relay_state: r.relay_state });\n}\n\nlet rows = '';\nconst roomNames = Object.keys(rooms).sort((a, b) => a.localeCompare(b, 'hu'));\nfor (const room of roomNames) {\n  const s = rooms[room];\n  const onMs = calcOnMsClamped(s.series, 'relay_state', RELAY_ON_VALUE);\n\n  rows += `<tr>\n  <td style=\"text-align:left;padding:8px 10px;border:1px solid #e5e7eb;font-size:13px;font-weight:600;white-space:nowrap;\">${room}</td>\n  <td style=\"text-align:right;padding:8px 10px;border:1px solid #e5e7eb;font-size:13px;font-variant-numeric:tabular-nums;\">${fnum(avg(s.t), 1)} °C</td>\n  <td style=\"text-align:right;padding:8px 10px;border:1px solid #e5e7eb;font-size:13px;font-variant-numeric:tabular-nums;\">${fnum(min(s.t), 1)} °C</td>\n  <td style=\"text-align:right;padding:8px 10px;border:1px solid #e5e7eb;font-size:13px;font-variant-numeric:tabular-nums;\">${fnum(max(s.t), 1)} °C</td>\n  <td style=\"text-align:right;padding:8px 10px;border:1px solid #e5e7eb;font-size:13px;font-variant-numeric:tabular-nums;\">${fnum(avg(s.h), 0)} %</td>\n  <td style=\"text-align:right;padding:8px 10px;border:1px solid #e5e7eb;font-size:13px;font-variant-numeric:tabular-nums;color:#0f766e;\"><b>${fmtHHMM(onMs)}</b></td>\n</tr>`;\n}\n// ---- Kuka emlékeztető (Sheets cellából) ----\nconst toTextCell = (v) => {\n  if (v == null) return '';\n  // ha google sheet node 2D tömböt ad: [[...]]\n  if (Array.isArray(v)) {\n    if (Array.isArray(v[0])) return String(v[0][0] ?? '').trim();\n    return String(v[0] ?? '').trim();\n  }\n  return String(v).trim();\n};\n\nconst kukaText = toTextCell(kuka);\n\nconst GLASS_AMBER = [\n  \"margin-top:12px\",\n  \"padding:10px 12px\",\n  \"border-radius:14px\",\n  \"border:1px solid rgba(251,191,36,0.55)\",\n  \"background:rgba(255,251,235,0.78)\",\n  \"box-shadow:0 10px 26px rgba(17,24,39,0.10), inset 0 1px 0 rgba(255,255,255,0.60)\",\n  \"backdrop-filter:blur(10px)\",\n  \"-webkit-backdrop-filter:blur(10px)\",\n].join(\";\");\n\nconst kukaBlock = kukaText\n  ? `<div style=\"${GLASS_AMBER}\">\n       🔔 <b>Huladékszállítás emlékeztető</b><br>\n       ${kukaText}\n     </div>`\n  : ``;\n\n\n\n// ---- Névnap / ebéd ----\nconst namedayMain = (nameday.main && String(nameday.main).trim()) ? String(nameday.main).trim() : '-';\nconst namedayOther = (nameday.other && String(nameday.other).trim()) ? String(nameday.other).trim() : '';\nconst namedayOtherShort = namedayOther.length > 140 ? (namedayOther.slice(0, 140) + '…') : namedayOther;\n\nconst lunchText = (lunch.lunch && String(lunch.lunch).trim()) ? String(lunch.lunch).trim() : '-';\n\n// ---- Forecast ----\nconst sunrise = timeHHMM(f.sunrise);\nconst sunset  = timeHHMM(f.sunset);\n\n// ---- Barátságos napi tipp (időjárás alapján) ----\n\nconst pSum = Number(f.precipSum);\nconst pProb = Number(f.precipProbMax);\nconst minT = Number(f.minTemp);\nconst maxT = Number(f.maxTemp);\nconst avgWind = Number(f.avgWind);\nconst trendTxt = (f.trend || '').toString().toLowerCase();\n\nlet tip = '';\nif ((Number.isFinite(pProb) && pProb >= 60) || (Number.isFinite(pSum) && pSum >= 2)) {\n  tip = 'Csapadék esélyes nap — egy esernyő/kabát nem rossz ötlet, és az utak is csúszósabbak lehetnek.';\n} else if  (Number.isFinite(minT) && minT <= 0) {\n  tip = 'Reggel fagyhat — érdemes rétegesen öltözni, és a csúszós részekre figyelni.';\n} else if (trendTxt.includes('lehű') || trendTxt.includes('hűv')) {\n  tip = 'Lehűlés várható — egy plusz réteg jól jöhet, főleg reggel és este.';\n} else if (trendTxt.includes('meleg') || trendTxt.includes('enyh')) {\n  tip = 'Enyhébb idő jöhet — ha teheted, szellőztess egyet napközben.';\n} else if (Number.isFinite(avgWind) && avgWind >= 25) {\n  tip = 'Szeles napnak nézünk elébe — a szélérzet jóval hűvösebb lehet.';\n} else if (Number.isFinite(maxT) && maxT >= 25) {\n  tip = 'Melegebb nap lesz — hidratálás, és egy kis árnyék aranyat ér.';\n} else {\n  tip = 'Legyen nyugodt, gördülékeny napod — ha bármi szokatlan, lentebb rögtön látni fogod. 🙂';\n}\n// ---- Liquid-glass box style (email-safe) ----\nconst GLASS_CARD = [\n  \"border:1px solid rgba(255,255,255,0.55)\",\n  \"background:rgba(255,255,255,0.72)\",\n  \"border-radius:16px\",\n  \"box-shadow:0 10px 26px rgba(17,24,39,0.10)\",\n  \"backdrop-filter:blur(10px)\",\n  \"-webkit-backdrop-filter:blur(10px)\",\n].join(\";\");\n\nconst GLASS_INNER = [\n  \"border:1px solid rgba(255,255,255,0.45)\",\n  \"background:rgba(255,255,255,0.55)\",\n  \"border-radius:14px\",\n  \"box-shadow:inset 0 1px 0 rgba(255,255,255,0.55)\",\n].join(\";\");\n\n// ---- HTML ----\nconst html = `<!doctype html>\n<html lang=\"hu\">\n<head>\n  <meta name=\"color-scheme\" content=\"light\">\n  <meta name=\"supported-color-schemes\" content=\"light\">\n  <meta charset=\"utf-8\">\n  <meta name=\"x-apple-disable-message-reformatting\">\n  <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n  <title>Jó reggelt</title>\n</head>\n<body style=\"margin:0;padding:0;background:#f3f6fb;color:#111827;font-family:Arial,Helvetica,sans-serif;\">\n<table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"background:#f3f6fb;\">\n\n  <!-- preheader -->\n  <div style=\"display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;\">\n    Jó reggelt! Időjárás, ebéd, EUR/HUF és fűtési összegzés egy helyen.\n  </div>\n\n  <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"background:#f3f6fb;\">\n    <tr>\n      <td align=\"center\" style=\"padding:18px 12px;\">\n        <table role=\"presentation\" width=\"680\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:680px;width:100%;${GLASS_CARD}\">\n\n          <tr>\n            <td style=\"padding:16px 16px 10px 16px;\">\n              <div style=\"font-size:22px;font-weight:700;line-height:1.2;\">Jó reggelt! ☀️</div>\n              <div style=\"margin-top:8px;font-size:14px;line-height:1.5;\">\n                Ma <b>${huDateLong}</b> van, <b>${namedayMain}</b> napja.\n                ${namedayOtherShort ? `<span style=\"color:#6b7280;\"> (további: ${namedayOtherShort})</span>` : ``}\n              </div>\n              <div style=\"margin-top:10px;font-size:14px;line-height:1.5;\">\n                Remélem, jól indult a reggel. Hoztam a gyors napi összefoglalót, hogy egy pillantással meglegyen minden fontos. 🙂\n              </div>\n              <div style=\"margin-top:10px;font-size:13px;line-height:1.5;color:#6b7280;\">\n                ${ICON.tip} ${tip}\n              </div>\n\n\n              <div style=\"margin-top:12px;font-size:14px;line-height:1.6;\">\n                ${ICON.weather} <b>Időjárás:</b> <b>${f.minTemp ?? '-'}–${f.maxTemp ?? '-'} °C</b>, ${f.trend ?? '-'}<br>\n                ${ICON.rain} <b>Csapadék:</b> ${f.precipText ?? '-'}<br>\n                ${ICON.wind} <b>Szél:</b> <b>${f.avgWind ?? '-'} km/h</b><br>\n                ${ICON.sunrise} <b>Napkelte:</b> <b>${sunrise}</b> &nbsp;&nbsp; ${ICON.sunset} <b>Napnyugta:</b> <b>${sunset}</b>\n\n              </div>\n\n              ${kukaBlock}\n\n              <div style=\"margin-top:12px;font-size:14px;line-height:1.6;\">\n                🍽 <b>Mai ebéd:</b> ${lunchText}<br>\n                💶 <b>EUR/HUF:</b> 1 EUR = <b>${fx.rate ?? '-'}</b> HUF <span style=\"color:#6b7280;\">(${fx.date ?? isoDate})</span>\n              </div>\n            </td>\n          </tr>\n        </table>\n\n        <table role=\"presentation\" width=\"680\" cellspacing=\"0\" cellpadding=\"0\" style=\"max-width:680px;width:100%;${GLASS_CARD}\">\n          <tr>\n            <td style=\"padding:14px 16px;\">\n              <div style=\"font-size:14px;font-weight:700;color:#2f6fb3;\">📈 Elmúlt 24 óra összegzés</div>\n\n              <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:10px;\">\n                <tr>\n                  <td style=\"padding:10px 12px;${GLASS_INNER}\">\n                    <div style=\"font-size:12px;color:#6b7280;\">Kültéri átlag</div>\n                    <div style=\"font-size:18px;font-weight:800;\">${outAvgT} °C</div>\n                  </td>\n                  <td width=\"10\"></td>\n                  <td style=\"padding:10px 12px;${GLASS_INNER}\">\n                    <div style=\"font-size:12px;color:#6b7280;\">Páratartalom</div>\n                    <div style=\"font-size:18px;font-weight:800;\">${outAvgH} %</div>\n                  </td>\n                  <td width=\"10\"></td>\n                  <td style=\"padding:10px 12px;${GLASS_INNER}\">\n                    <div style=\"font-size:12px;color:#6b7280;\">Kazán működési idő</div>\n                    <div style=\"font-size:18px;font-weight:800;color:#0f766e;\">${boilerOnHHMM}</div>\n                  </td>\n                </tr>\n              </table>\n\n              <div style=\"margin-top:8px;font-size:12px;color:#6b7280;\">\n                5 perces mintavételezés, nagy adatkimaradásnál clampelve.\n              </div>\n\n              <table role=\"presentation\" width=\"100%\" cellspacing=\"0\" cellpadding=\"0\" style=\"margin-top:10px;border-collapse:collapse;\">\n                <tr>\n                  <th style=\"text-align:left;padding:8px 10px;background:#f2f6fb;border:1px solid #e5e7eb;font-size:13px;\">Helyiség</th>\n                  <th style=\"text-align:right;padding:8px 10px;background:#f2f6fb;border:1px solid #e5e7eb;font-size:13px;\">Átlag</th>\n                  <th style=\"text-align:right;padding:8px 10px;background:#f2f6fb;border:1px solid #e5e7eb;font-size:13px;\">Min</th>\n                  <th style=\"text-align:right;padding:8px 10px;background:#f2f6fb;border:1px solid #e5e7eb;font-size:13px;\">Max</th>\n                  <th style=\"text-align:right;padding:8px 10px;background:#f2f6fb;border:1px solid #e5e7eb;font-size:13px;\">Pára</th>\n                  <th style=\"text-align:right;padding:8px 10px;background:#f2f6fb;border:1px solid #e5e7eb;font-size:13px;\">Fűtési idő (ON)</th>\n                </tr>\n                ${rows}\n              </table>\n\n              <div style=\"margin-top:14px;font-size:12px;color:#6b7280;\">\n                Üdvözlettel,<br><b>Sonoff × Node-RED Smart System</b>\n              </div>\n            </td>\n          </tr>\n        </table>\n\n      </td>\n    </tr>\n  </table>\n</body>\n</html>`;\n\nconst subjectPrefix = kukaText ? '🗑️ Holnap kukanap! – ' : '';\nmsg.topic = `${subjectPrefix}☀️ Jó reggelt! – ${isoDate} (${namedayMain})`;\nmsg.payload = html;        // HTML STRING!\ndelete msg.headers;        // semmi kézi Content-Type\nreturn msg;",
+    "outputs": 1,
+    "timeout": "",
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1630,
+    "y": 540,
+    "wires": [
+      [
+        "c9e04a467cd7a539",
+        "48422c23559072e5"
+      ]
+    ]
+  },
+  {
+    "id": "c9e04a467cd7a539",
+    "type": "debug",
+    "z": "9bf43a9c31324288",
+    "name": "Preview HTML",
+    "active": true,
+    "tosidebar": true,
+    "complete": "payload",
+    "targetType": "msg",
+    "x": 1840,
+    "y": 560,
+    "wires": []
+  },
+  {
+    "id": "53967ed68a6bdfcc",
+    "type": "GSheet",
+    "z": "9bf43a9c31324288",
+    "creds": "e1a2faae6cbf8d2b",
+    "method": "get",
+    "action": "",
+    "sheet": "REPLACE_WITH_GOOGLE_SHEET_ID",
+    "cells": "Today!A1",
+    "flatten": false,
+    "name": "Lunch menu",
+    "x": 590,
+    "y": 560,
+    "wires": [
+      [
+        "27e8cce44a1fea28"
+      ]
+    ]
+  },
+  {
+    "id": "46fff4f7a932c99b",
+    "type": "debug",
+    "z": "9bf43a9c31324288",
+    "name": "Lunch menu & nameday & garbage",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1580,
+    "y": 600,
+    "wires": []
+  },
+  {
+    "id": "27e8cce44a1fea28",
+    "type": "function",
+    "z": "9bf43a9c31324288",
+    "name": "Menu msg.payload",
+    "func": "const v = Array.isArray(msg.payload) && msg.payload[0] ? msg.payload[0][0] : null;\nmsg.payload = { lunch: (v && String(v).trim()) ? String(v).trim() : '-', note: '' };\nmsg.topic = 'lunch';\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1010,
+    "y": 560,
+    "wires": [
+      [
+        "793048841065f486",
+        "46fff4f7a932c99b"
+      ]
+    ]
+  },
+  {
+    "id": "edb174707deb12ec",
+    "type": "http request",
+    "z": "9bf43a9c31324288",
+    "name": "Nameday URL request",
+    "method": "GET",
+    "ret": "obj",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 840,
+    "y": 640,
+    "wires": [
+      [
+        "2d0f2eade90cdcce"
+      ]
+    ]
+  },
+  {
+    "id": "2d0f2eade90cdcce",
+    "type": "function",
+    "z": "9bf43a9c31324288",
+    "name": "Normalize",
+    "func": "const toList = (v) => {\n  if (Array.isArray(v)) return v.map(s => String(s).trim()).filter(Boolean);\n  if (v == null) return [];\n  return String(v).split(',').map(s => s.trim()).filter(Boolean);\n};\n\n// ha string jön, próbáljuk JSON-ként parse-olni\nlet o = msg.payload;\nif (typeof o === 'string') {\n  try { o = JSON.parse(o); } catch (e) { o = {}; }\n}\nif (!o || typeof o !== 'object') o = {};\n\nconst main = toList(o.nev1);\nconst other = toList(o.nev2);\n\nmsg.topic = 'nameday';\nmsg.payload = {\n  main: main.join(', ') || '-',\n  other: other.join(', '),\n};\n\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 1040,
+    "y": 640,
+    "wires": [
+      [
+        "793048841065f486",
+        "46fff4f7a932c99b"
+      ]
+    ]
+  },
+  {
+    "id": "9abc7fef53be194a",
+    "type": "function",
+    "z": "9bf43a9c31324288",
+    "name": "Nameday URL Builder",
+    "func": "const TZ = 'Europe/Budapest';\n\nconst d = new Date();\nconst mm = new Intl.DateTimeFormat('hu-HU', { timeZone: TZ, month: '2-digit' }).format(d);\nconst dd = new Intl.DateTimeFormat('hu-HU', { timeZone: TZ, day: '2-digit' }).format(d);\n\n// FONTOS: a json.txt helyett a json.php-t hívd!\nmsg.url = `https://nevnap.xsak.hu/json.php?honap=${mm}&nap=${dd}`;\n// alternatíva ha ezt használod: https://xsak.hu/nevnap/json.php?honap=${mm}&nap=${dd}\n\nreturn msg;\n",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 620,
+    "y": 640,
+    "wires": [
+      [
+        "edb174707deb12ec"
+      ]
+    ]
+  },
+  {
+    "id": "566f6611d79584d4",
+    "type": "debug",
+    "z": "9bf43a9c31324288",
+    "name": "SQL data",
+    "active": false,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 1820,
+    "y": 440,
+    "wires": []
+  },
+  {
+    "id": "72e35066857a591b",
+    "type": "function",
+    "z": "9bf43a9c31324288",
+    "name": "Garbage days msg.payload",
+    "func": "const v = msg.payload?.[0]?.[0] ?? '';\nmsg.payload = (v && String(v).trim()) ? String(v).trim() : '';\nmsg.topic = 'kuka';\nreturn msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 980,
+    "y": 600,
+    "wires": [
+      [
+        "793048841065f486",
+        "46fff4f7a932c99b"
+      ]
+    ]
+  },
+  {
+    "id": "854420542fb03af0",
+    "type": "GSheet",
+    "z": "9bf43a9c31324288",
+    "creds": "e1a2faae6cbf8d2b",
+    "method": "get",
+    "action": "",
+    "sheet": "REPLACE_WITH_GOOGLE_SHEET_ID",
+    "cells": "Today!A2",
+    "flatten": false,
+    "name": "Garbage days",
+    "x": 600,
+    "y": 600,
+    "wires": [
+      [
+        "72e35066857a591b"
+      ]
+    ]
+  },
+  {
+    "id": "237979a147b5461d",
+    "type": "mysql",
+    "z": "9bf43a9c31324288",
+    "mydb": "42cf2f513391fa3a",
+    "name": "snap_weather",
+    "x": 900,
+    "y": 60,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "6fe984444758269f",
+    "type": "mysql",
+    "z": "9bf43a9c31324288",
+    "mydb": "42cf2f513391fa3a",
+    "name": "snap_sensors_th",
+    "x": 910,
+    "y": 120,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "70f2bbbced02be41",
+    "type": "mysql",
+    "z": "9bf43a9c31324288",
+    "mydb": "42cf2f513391fa3a",
+    "name": "snap_ac",
+    "x": 880,
+    "y": 180,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "f2c51cd5026d276d",
+    "type": "mysql",
+    "z": "9bf43a9c31324288",
+    "mydb": "42cf2f513391fa3a",
+    "name": "snap_heating",
+    "x": 900,
+    "y": 240,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "351b16678f968e1a",
+    "type": "mysql",
+    "z": "9bf43a9c31324288",
+    "mydb": "42cf2f513391fa3a",
+    "name": "snap_shutters",
+    "x": 900,
+    "y": 300,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "a6174db3be97f769",
+    "type": "function",
+    "z": "9bf43a9c31324288",
+    "name": "Live Snapshot 1.0",
+    "func": "// ════════════════════════════════════════════════════════════\n//  == FUNCTION NODE: live_snapshot_writer ==\n//  Elhelyezés: Unifier output után → mysql node\n//\n//  Mit csinál:\n//  1. Az Unifier teljes outputját JSON-ként beírja live_snapshot-ba\n//  2. Minden írásnál törli a 25 óránál régebbi sorokat\n//\n//  Kimenet 1 → mysql node (INSERT)\n//  Kimenet 2 → mysql node (DELETE cleanup)\n// ════════════════════════════════════════════════════════════\n\nif (!msg.payload || !msg.payload._ts) return null;\n\nconst snapshot = {\n    weather: msg.payload.weather || null,\n    ac:      msg.payload.ac      || null,\n    sensors: msg.payload.sensors || {},\n    lights:  msg.payload.lights  || {}\n};\n\n// ── 1. kimenet: INSERT ───────────────────────────────────────\nconst insertMsg = {\n    topic: \"INSERT INTO live_snapshot (ts, payload) VALUES (NOW(3), ?)\",\n    payload: [ JSON.stringify(snapshot) ]\n};\n\n// ── 2. kimenet: DELETE régi sorok ───────────────────────────\n// Minden 10. üzenetnél fut a cleanup (nem kell minden írásnál)\nlet writeCount = context.get(\"writeCount\") || 0;\nwriteCount++;\ncontext.set(\"writeCount\", writeCount);\n\nlet cleanupMsg = null;\nif (writeCount % 10 === 0) {\n    cleanupMsg = {\n        topic: \"DELETE FROM live_snapshot WHERE ts < NOW() - INTERVAL 25 HOUR\",\n        payload: []\n    };\n}\n\n// Node státusz\nnode.status({\n    fill:  \"green\",\n    shape: \"dot\",\n    text:  `✓ ${new Date().toLocaleTimeString(\"hu-HU\")}  |  #${writeCount}`\n});\n\nreturn [insertMsg, cleanupMsg];\n",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 330,
+    "y": 220,
+    "wires": [
+      [
+        "aa44ed92f0cca6d8"
+      ],
+      [
+        "51048b0f3212a7ed"
+      ]
+    ]
+  },
+  {
+    "id": "aa44ed92f0cca6d8",
+    "type": "mysql",
+    "z": "9bf43a9c31324288",
+    "mydb": "42cf2f513391fa3a",
+    "name": "mySQL Insert",
+    "x": 540,
+    "y": 200,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "51048b0f3212a7ed",
+    "type": "mysql",
+    "z": "9bf43a9c31324288",
+    "mydb": "42cf2f513391fa3a",
+    "name": "mySQL Delete",
+    "x": 540,
+    "y": 260,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "42cf2f513391fa3a",
+    "type": "MySQLdatabase",
+    "name": "Home automation database",
+    "host": "192.0.2.20",
+    "port": "3306",
+    "db": "home_automation",
+    "tz": "",
+    "charset": "utf8mb4"
+  },
+  {
+    "id": "e1a2faae6cbf8d2b",
+    "type": "gauth",
+    "name": "service-account@example-project.iam.gserviceaccount.com"
+  },
+  {
+    "id": "4833e637d584168f",
+    "type": "global-config",
+    "env": [],
+    "modules": {
+      "node-red-node-email": "5.2.5",
+      "node-red-node-mysql": "3.0.3",
+      "node-red-contrib-google-sheets": "1.1.2"
+    }
+  }
+]
